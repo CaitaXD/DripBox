@@ -41,7 +41,9 @@ struct dynamic_array_header_t {
         size_t __element_size = sizeof(*(dyn__));\
         __header->length += 1;\
         _dynamic_array_reserve_impl(&__header, __element_size, __header->length);\
+        __data = (void*)__header->data;\
         __data[__header->length - 1] = (element__);\
+        (dyn__) = __data;\
         void_expression();\
     })
 
@@ -53,6 +55,20 @@ struct dynamic_array_header_t {
         __header->length -= 1;\
         __data[__header->length];\
     })
+
+#define dynamic_array_insert(dyn__, index__, element__) \
+    ({\
+        auto_var(__data, (dyn__));\
+        auto_var(__header, dynamic_array_header(__data));\
+        size_t __element_size = sizeof(*(dyn__));\
+        size_t __index = (index__);\
+        _dynamic_array_shift_impl(&__header, __element_size, __index);\
+        __data = (void*)__header->data;\
+        __data[__index] = (element__);\
+        (dyn__) = __data;\
+        void_expression();\
+    })
+
 
 static struct dynamic_array_header_t *_dynamic_array_with_capacity_impl(
     const size_t element_size, const size_t capacity,
@@ -82,9 +98,44 @@ static void _dynamic_array_reserve_impl(struct dynamic_array_header_t **buffer, 
         assert(new_buffer != NULL && "Allocation failed, Buy more RAM");
         new_buffer->length = (*buffer)->length;
         memcpy(new_buffer->data, (*buffer)->data, element_size * (*buffer)->length);
-        dealloc(buffer_->allocator, *buffer);
+        //dealloc(buffer_->allocator, *buffer);
         *buffer = new_buffer;
     }
+}
+
+static void *_dynamic_array_shift_impl(struct dynamic_array_header_t **buffer, const size_t element_size,
+                                  const size_t index) {
+    assert(index <= (*buffer)->length && "Index out of bounds");
+
+    _dynamic_array_reserve_impl(buffer, element_size, (*buffer)->length + 1);
+    struct dynamic_array_header_t *buffer_ = *buffer;
+    buffer_->length += 1;
+    const size_t byte_size = element_size * buffer_->length;
+    const size_t src_offset = element_size * index;
+    const size_t dst_offset = element_size * (index + 1);
+    memmove(
+        buffer_->data + dst_offset,
+        buffer_->data + src_offset,
+        byte_size - src_offset
+    );
+    void *data = buffer_->data + src_offset;
+    return data;
+}
+
+static void _dynamic_array_remove_impl(struct dynamic_array_header_t **buffer, const size_t index,
+                                     const size_t element_size) {
+    assert(index < (*buffer)->length && "Index out of bounds");
+
+    struct dynamic_array_header_t *buffer_ = *buffer;
+    const size_t byte_size = element_size * buffer_->length;
+    const size_t src_offset = element_size * (index + 1);
+    const size_t dst_offset = element_size * index;
+    memmove(
+        buffer_->data + dst_offset,
+        buffer_->data + src_offset,
+        byte_size - src_offset
+    );
+    buffer_->length -= 1;
 }
 
 #endif //DYNAMIC_ARRAY_H

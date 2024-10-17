@@ -1,1 +1,1 @@
-gcc-11 main.c -o bin/main -I ./lib
+mkdir bin && gcc-11 main.c -o bin/main -I ./lib
