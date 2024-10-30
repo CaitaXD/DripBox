@@ -7,8 +7,7 @@
 #include <assert.h>
 #include <string.h>
 #include <Allocator.h>
-
-#include "common.h"
+#include <common.h>
 
 #ifndef DYNAMIC_ARRAY_API
 #    define DYNAMIC_ARRAY_API static inline
@@ -28,7 +27,7 @@ struct dynamic_array_header_t {
 
 #define dynamic_array_with_capacity(T, capacity__, allocator__) \
     ({\
-        auto_var(__allocator, (allocator__));\
+        var __allocator = (allocator__);\
         size_t __capacity = (capacity__);\
         size_t __element_size = sizeof(T);\
         (T*)_dynamic_array_with_capacity_impl(__element_size, __capacity, __allocator)->data;\
@@ -36,21 +35,22 @@ struct dynamic_array_header_t {
 
 #define dynamic_array_push(dyn__, element__) \
     ({\
-        auto_var(__data, (dyn__));\
-        auto_var(__header, dynamic_array_header(__data));\
+        var __data_ptr = &(dyn__);\
+        var __data = *__data_ptr;\
+        var __header = dynamic_array_header(__data);\
         size_t __element_size = sizeof(*(dyn__));\
         __header->length += 1;\
-        _dynamic_array_reserve_impl(&__header, __element_size, __header->length);\
         __data = (void*)__header->data;\
         __data[__header->length - 1] = (element__);\
-        (dyn__) = __data;\
+        _dynamic_array_reserve_impl(&__header, __element_size, __header->length);\
+        *__data_ptr = __data;\
         void_expression();\
     })
 
 #define dynamic_array_pop(dyn__) \
     ({\
-        auto_var(__data, (dyn__));\
-        auto_var(__header, dynamic_array_header(__data));\
+        var __data = (dyn__);\
+        var __header = dynamic_array_header(__data);\
         size_t __element_size = sizeof(*(dyn__));\
         __header->length -= 1;\
         __data[__header->length];\
@@ -58,13 +58,24 @@ struct dynamic_array_header_t {
 
 #define dynamic_array_insert(dyn__, index__, element__) \
     ({\
-        auto_var(__data, (dyn__));\
-        auto_var(__header, dynamic_array_header(__data));\
+        var __data = (dyn__);\
+        var __header = dynamic_array_header(__data);\
         size_t __element_size = sizeof(*(dyn__));\
         size_t __index = (index__);\
         _dynamic_array_shift_impl(&__header, __element_size, __index);\
         __data = (void*)__header->data;\
         __data[__index] = (element__);\
+        (dyn__) = __data;\
+        void_expression();\
+    })
+
+#define dynamic_array_remove_at(dyn__, index__) \
+    ({\
+        var __data = (dyn__);\
+        var __header = dynamic_array_header(__data);\
+        size_t __element_size = sizeof(*(dyn__));\
+        size_t __index = (index__);\
+        _dynamic_array_remove_impl(&__header, __index, __element_size);\
         (dyn__) = __data;\
         void_expression();\
     })
@@ -91,14 +102,14 @@ static void _dynamic_array_reserve_impl(struct dynamic_array_header_t **buffer, 
         return;
     }
     if (buffer_->capacity <= capacity) {
-        buffer_->capacity = max(capacity, (size_t)4);
+        buffer_->capacity = max(next_power_of_two(capacity), (size_t)2);
         struct allocator_t *allocator = (*buffer)->allocator;
         struct dynamic_array_header_t *new_buffer = _dynamic_array_with_capacity_impl(
             element_size, buffer_->capacity << 1, allocator);
         assert(new_buffer != NULL && "Allocation failed, Buy more RAM");
         new_buffer->length = (*buffer)->length;
         memcpy(new_buffer->data, (*buffer)->data, element_size * (*buffer)->length);
-        //dealloc(buffer_->allocator, *buffer);
+        dealloc(buffer_->allocator, *buffer);
         *buffer = new_buffer;
     }
 }

@@ -24,6 +24,8 @@ ALLOCATOR_API void dealloc(const struct allocator_t *allocator, void *ptr);
 
 ALLOCATOR_API void *alloc_copy(const struct allocator_t *allocator, const void *ptr, size_t size);
 
+#define new(allocator__, type__) (type__*)alloc(allocator__, sizeof(type__))
+
 #ifndef DEFAULT_ALLOCATOR
 
 extern void *malloc(size_t size);
