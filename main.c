@@ -9,6 +9,7 @@
 
 #include "dripbox_common.h"
 #include "server.c"
+#include "client.c"
 
 enum {
     SUCCESS,
@@ -62,32 +63,6 @@ int parse_commandline(const int argc, char *argv[argc]) {
         }
     }
     return SUCCESS;
-}
-
-int client_main() {
-    struct socket_t client = socket_new(AF_INET);
-    tcp_client_connect(&client, &ipv4_endpoint_new(ip, port));
-    if (client.last_error != 0) {
-        log(LOG_INFO, "%s\n", strerror(client.last_error));
-        return 1;
-    }
-
-    log(LOG_INFO, "Connected to server %s\n", socket_address_to_cstr(client.addr, &default_allocator));
-
-    const struct dripbox_payload_header_t header = {
-        .version = 1,
-        .type = MSG_LOGIN,
-        .length = username.length,
-    };
-    int ret = 0;
-    ret |= send(client.sock_fd, &header, sizeof header, 0);
-    ret |= send(client.sock_fd, username.data, username.length, 0);
-    if (ret < 0) {
-        log(LOG_INFO, "%s\n", strerror(client.last_error));
-        return 1;
-    }
-    close(client.sock_fd);
-    return 0;
 }
 
 int main(const int argc, char *argv[argc]) {

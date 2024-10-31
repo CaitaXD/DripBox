@@ -6,6 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <hash_set.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <linux/limits.h>
 
 struct user_t {
     char *username;
@@ -39,7 +43,7 @@ static void *incoming_connection_thread(void *arg) {
         }
         char *msg_type = NULL;
         switch (header.type) {
-            case MSG_LOGIN:
+            case MSG_LOGIN: {
                 msg_type = "Login";
                 username.data = server_buffer;
                 username.length = header.length;
@@ -47,14 +51,42 @@ static void *incoming_connection_thread(void *arg) {
                     .username = username.data,
                 };
                 hash_table_insert(users, username.data, user);
+
+                const char userdata[] = "./userdata/";
+                char path_buffer[PATH_MAX] = {};
+                const int len = snprintf(path_buffer, PATH_MAX, "./userdata/%*s", (int) username.length, username.data);
+                path_buffer[len] = 0;
+
+                struct stat st = {};
+                if (stat(userdata, &st) < 0) {
+                    mkdir(userdata, S_IRWXU | S_IRWXG | S_IRWXO);
+                }
+                if (stat(path_buffer, &st) < 0) {
+                    mkdir(path_buffer, S_IRWXU | S_IRWXG | S_IRWXO);
+                }
+            }
+            break;
+            case MSG_UPLOAD: {
+                msg_type = "Upload";
+                int recvd = 0;
+                ret = 0;
+                while ((ret = recv(client.sock_fd, server_buffer, header.length, 0)) > 0) {
+                    recvd += ret;
+                }
+                if (ret < 0) {
+                    log(LOG_INFO, "%s\n", strerror(errno));
+                    continue;
+                }
+                printf("Uploaded %d bytes\n%*s", recvd, recvd, (char *) server_buffer);
                 break;
+            }
             default:
                 log(LOG_ERROR, "Unknown message type: %d\n", header.type);
                 continue;
         }
 
         log(LOG_INFO,
-            "Message Received\nVersion: %d\nType: %s\nLength: %d, Body: %.*s\n",
+            "Message Received\nVersion: %d\nType: %s\nLength: %zu, Body: %.*s\n",
             header.version,
             msg_type,
             header.length,
@@ -68,7 +100,7 @@ static void *incoming_connection_thread(void *arg) {
 static int server_main() {
     struct tcp_listener_t listener = tcp_listener_new(AF_INET);
     tcp_listener_bind(&listener, &ipv4_endpoint_new(ip, port));
-    tcp_listener_listen(&listener, 10);
+    tcp_listener_listen(&listener, SOMAXCONN);
     if (listener.last_error != 0) {
         log(LOG_INFO, "%s\n", strerror(listener.last_error));
         return 1;
@@ -80,10 +112,11 @@ static int server_main() {
         .users_hash_table = (void *) hash_table_new(char*, struct user_t, string_hash, string_equals,
                                                     &default_allocator),
     };
+
     pthread_create(&incoming_connection_thread_id, NULL, incoming_connection_thread, &ctx);
 
     while (true) {
-        sleep(10000);
+        sleep(1);
     }
 
     return 0;
