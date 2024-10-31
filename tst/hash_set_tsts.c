@@ -185,19 +185,19 @@ int main() {
     var table = hash_table_new(char *, int, string_hash, string_equals,
                                &default_allocator);
 
-    result = hash_table_insert(table, "One", 1);
+    result = hash_table_insert(&table, "One", 1);
     assert(result);
     result = hash_table_contains(table, "One");
     assert(result);
-    result = hash_table_insert(table, "Two", 2);
+    result = hash_table_insert(&table, "Two", 2);
     assert(result);
-    result = hash_table_insert(table, "Three", 3);
+    result = hash_table_insert(&table, "Three", 3);
     assert(result);
-    result = hash_table_insert(table, "Four", 4);
+    result = hash_table_insert(&table, "Four", 4);
     assert(result);
-    result = hash_table_insert(table, "Five", 5);
+    result = hash_table_insert(&table, "Five", 5);
     assert(result);
-    result = hash_table_insert(table, "Six", 6);
+    result = hash_table_insert(&table, "Six", 6);
 
     var ht = hash_set_header(table);
     printf("Capacity: %zu\n", ht->capacity);
@@ -217,15 +217,15 @@ int main() {
     }
     printf("\n");
 
-    result = !hash_table_insert(table, "One", 1);
+    result = !hash_table_insert(&table, "One", 1);
     assert(result && "Duplicate insert should fail");
-    result = !hash_table_insert(table, "Two", 2);
+    result = !hash_table_insert(&table, "Two", 2);
     assert(result && "Duplicate insert should fail");
-    result = !hash_table_insert(table, "Three", 3);
+    result = !hash_table_insert(&table, "Three", 3);
     assert(result && "Duplicate insert should fail");
-    result = !hash_table_insert(table, "Four", 4);
+    result = !hash_table_insert(&table, "Four", 4);
     assert(result && "Duplicate insert should fail");
-    result = !hash_table_insert(table, "Five", 5);
+    result = !hash_table_insert(&table, "Five", 5);
     assert(result && "Duplicate insert should fail");
 
     result = hash_table_remove(table, "One");
@@ -252,7 +252,7 @@ int main() {
     var map = hash_table_new(int, int, hash_int_ptr, int_ptr_equals, &default_allocator);
 
     for (int i = 0; i < 5; i++) {
-        result = hash_table_insert(map, i, i * 2);
+        result = hash_table_insert(&map, i, i * 2);
         assert(result);
         result = hash_table_contains(map, i);
         assert(result);

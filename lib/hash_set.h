@@ -135,7 +135,7 @@ enum { HASH_SET_MIN_CAPACITY = 4 };
 
 #define hash_table_insert(table__, key__, value__) \
     ({\
-        var __data_ptr = &(table__);\
+        var __data_ptr = (table__);\
         var __data = *__data_ptr;\
         var __header = hash_set_header(__data);\
         var __key = (key__);\

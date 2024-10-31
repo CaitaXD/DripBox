@@ -73,9 +73,8 @@ static void handle_massage(void **users_hash_table,
             .socket = client,
         };
 
-        hash_table(char*, struct user_t) ht = *users_hash_table;
+        hash_table(char*, struct user_t) *ht = *users_hash_table;
         hash_table_insert(ht, username.data, user);
-        *users_hash_table = ht;
 
         const char userdata[] = "./userdata/";
         char path_buffer[PATH_MAX] = {};
