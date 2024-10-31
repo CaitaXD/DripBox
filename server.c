@@ -13,76 +13,79 @@
 
 struct user_t {
     char *username;
+    struct socket_t socket;
 };
-
-#define NOTHING
-
 
 struct incoming_connection_thread_context_t {
     struct tcp_listener_t *listener;
     hash_table(char*, struct user_t) users_hash_table;
 };
 
+const char *msg_type_cstr(const enum msg_type msg_type) {
+    const char *str = NULL;
+    switch (msg_type) {
+        case MSG_UPLOAD:
+            str = "Upload";
+            break;
+        case MSG_LOGIN:
+            str = "Login";
+            break;
+        case MSG_NOOP:
+            str = "NOOP";
+            break;
+        default:
+            str = "INVALID MESSAGE";
+            break;
+    }
+    return str;
+}
+
 static void *incoming_connection_thread(void *arg) {
     const struct incoming_connection_thread_context_t *context = arg;
     const struct tcp_listener_t *listener = context->listener;
     var users = context->users_hash_table;
     struct socket_t client = {};
+    var addr = ipv4_endpoint_empty();
     static uint8_t server_buffer[1 << 20];
-
-    log(LOG_INFO, "Waiting for connections");
-    while (tcp_server_incoming_next(listener, &client, &ipv4_endpoint_empty())) {
-        log(LOG_INFO, "Connected to client %s\n", socket_address_to_cstr(client.addr, &default_allocator));
+    while (tcp_server_incoming_next(listener, &client, &addr)) {
         struct dripbox_payload_header_t header = {};
         int ret = 0;
         ret |= recv(client.sock_fd, &header, sizeof header, 0);
         ret |= recv(client.sock_fd, server_buffer, header.length, 0);
+        socket_close(&client);
         if (ret < 0) {
             log(LOG_INFO, "%s\n", strerror(errno));
             continue;
         }
-        char *msg_type = NULL;
-        switch (header.type) {
-            case MSG_LOGIN: {
-                msg_type = "Login";
-                username.data = server_buffer;
-                username.length = header.length;
-                const struct user_t user = {
-                    .username = username.data,
-                };
-                hash_table_insert(users, username.data, user);
+        if (header.type == MSG_NOOP) {
+            continue;
+        }
+        const char *msg_type = msg_type_cstr(header.type);
+        if (header.type == MSG_LOGIN) {
+            msg_type = "Login";
+            username.data = server_buffer;
+            username.length = header.length;
+            const struct user_t user = {
+                .username = username.data,
+                .socket = client,
+            };
+            hash_table_insert(users, username.data, user);
 
-                const char userdata[] = "./userdata/";
-                char path_buffer[PATH_MAX] = {};
-                const int len = snprintf(path_buffer, PATH_MAX, "./userdata/%*s", (int) username.length, username.data);
-                path_buffer[len] = 0;
+            const char userdata[] = "./userdata/";
+            char path_buffer[PATH_MAX] = {};
+            const int len = snprintf(path_buffer, PATH_MAX, "./userdata/%*s", (int) username.length, username.data);
+            path_buffer[len] = 0;
 
-                struct stat st = {};
-                if (stat(userdata, &st) < 0) {
-                    mkdir(userdata, S_IRWXU | S_IRWXG | S_IRWXO);
-                }
-                if (stat(path_buffer, &st) < 0) {
-                    mkdir(path_buffer, S_IRWXU | S_IRWXG | S_IRWXO);
-                }
+            struct stat st = {};
+            if (stat(userdata, &st) < 0) {
+                mkdir(userdata, S_IRWXU | S_IRWXG | S_IRWXO);
             }
-            break;
-            case MSG_UPLOAD: {
-                msg_type = "Upload";
-                int recvd = 0;
-                ret = 0;
-                while ((ret = recv(client.sock_fd, server_buffer, header.length, 0)) > 0) {
-                    recvd += ret;
-                }
-                if (ret < 0) {
-                    log(LOG_INFO, "%s\n", strerror(errno));
-                    continue;
-                }
-                printf("Uploaded %d bytes\n%*s", recvd, recvd, (char *) server_buffer);
-                break;
+            if (stat(path_buffer, &st) < 0) {
+                mkdir(path_buffer, S_IRWXU | S_IRWXG | S_IRWXO);
             }
-            default:
-                log(LOG_ERROR, "Unknown message type: %d\n", header.type);
-                continue;
+        } else {
+            log(LOG_ERROR, "Message of type %s not supported before login", msg_type);
+            continue;
         }
 
         log(LOG_INFO,
@@ -92,9 +95,11 @@ static void *incoming_connection_thread(void *arg) {
             header.length,
             (int) username.length, username.data
         );
-        close(client.sock_fd);
     }
     return NULL;
+}
+
+static void connection_thread(void *arg) {
 }
 
 static int server_main() {

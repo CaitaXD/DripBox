@@ -47,7 +47,7 @@ NETWORK_API struct socket_t socket_new(int domain);
 
 NETWORK_API bool tcp_client_connect(struct socket_t *client, struct socket_address_t *addr);
 
-NETWORK_API bool tcp_client_close(struct socket_t *client);
+NETWORK_API bool socket_close(struct socket_t *s);
 
 NETWORK_API const char *
 socket_address_to_cstr(const struct socket_address_t *addr, const struct allocator_t *allocator);
@@ -179,13 +179,13 @@ bool tcp_client_connect(struct socket_t *client, struct socket_address_t *addr) 
     return true;
 }
 
-bool tcp_client_close(struct socket_t *client) {
-    if (client->last_error != 0) { return false; }
-    if (close(client->sock_fd) < 0) {
-        client->last_error = errno;
+bool socket_close(struct socket_t *s) {
+    if (s->last_error != 0) { return false; }
+    if (close(s->sock_fd) < 0) {
+        s->last_error = errno;
         return false;
     }
-    client->sock_fd = -1;
+    s->sock_fd = -1;
     return true;
 }
 
