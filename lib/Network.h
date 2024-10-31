@@ -20,7 +20,7 @@ struct socket_address_t {
 };
 
 struct tcp_listener_t {
-    int socket;
+    int sock_fd;
     int last_error;
     struct socket_address_t *addr;
     int domain;
@@ -60,8 +60,8 @@ NETWORK_API bool tcp_server_incoming_next(const struct tcp_listener_t *listener,
 #define socket_option(fd__, level__, VAL)\
     setsockopt(fd__, level__, SOL_SOCKET, (typeof(VAL)[1]){(VAL)}, sizeof (VAL))
 
-#define socket_blocking(fd__, blocking__)\
-    fcntl(fd__, F_SETFL, blocking__ ? O_NONBLOCK : 0)
+#define socket_non_blocking(fd__)\
+    fcntl(fd__, F_SETFL, O_NONBLOCK)
 
 #define ipv4_endpoint_new(host_ip__, host_port__)\
     ((struct socket_address_t) {\
@@ -80,7 +80,7 @@ NETWORK_API bool tcp_server_incoming_next(const struct tcp_listener_t *listener,
 
 struct tcp_listener_t tcp_listener_new(const int domain) {
     const struct tcp_listener_t listener = {
-        .socket = -1,
+        .sock_fd = -1,
         .last_error = 0,
         .domain = domain
     };
@@ -112,14 +112,14 @@ const char *socket_address_to_cstr(const struct socket_address_t *addr, const st
 bool tcp_listener_bind(struct tcp_listener_t *listener, struct socket_address_t *addr) {
     if (listener->last_error != 0) { return false; }
     const int domain = listener->domain;
-    listener->socket = socket(domain, SOCK_STREAM, IPPROTO_TCP);
-    if (listener->socket < 0) {
+    listener->sock_fd = socket(domain, SOCK_STREAM, IPPROTO_TCP);
+    if (listener->sock_fd < 0) {
         listener->last_error = errno;
         return false;
     }
 
     listener->addr = addr;
-    if (bind(listener->socket, addr->sa, addr->addr_len) < 0) {
+    if (bind(listener->sock_fd, addr->sa, addr->addr_len) < 0) {
         listener->last_error = errno;
     }
     return true;
@@ -127,7 +127,7 @@ bool tcp_listener_bind(struct tcp_listener_t *listener, struct socket_address_t 
 
 bool tcp_listener_listen(struct tcp_listener_t *listener, const int backlog) {
     if (listener->last_error != 0) { return false; }
-    if (listen(listener->socket, backlog) < 0) {
+    if (listen(listener->sock_fd, backlog) < 0) {
         listener->last_error = errno;
     }
     return true;
@@ -139,7 +139,7 @@ struct socket_t tcp_listener_accept(const struct tcp_listener_t *listener, struc
         .addr = addr,
     };
     if (listener->last_error != 0) { return client; }
-    client.sock_fd = accept(listener->socket, client.addr->sa, &client.addr->addr_len);
+    client.sock_fd = accept(listener->sock_fd, client.addr->sa, &client.addr->addr_len);
     if (client.sock_fd < 0) {
         client.last_error = errno;
         return client;
@@ -149,11 +149,11 @@ struct socket_t tcp_listener_accept(const struct tcp_listener_t *listener, struc
 
 bool tcp_listener_close(struct tcp_listener_t *listener) {
     if (listener->last_error != 0) { return false; }
-    if (close(listener->socket) < 0) {
+    if (close(listener->sock_fd) < 0) {
         listener->last_error = errno;
         return false;
     }
-    listener->socket = -1;
+    listener->sock_fd = -1;
     return true;
 }
 
@@ -233,7 +233,7 @@ struct socket_stream_t socket_stream(struct socket_t *socket, const int flags) {
 
 bool tcp_server_incoming_next(const struct tcp_listener_t *listener, struct socket_t *client,
                               struct socket_address_t *addr) {
-    const int client_socket = accept(listener->socket, addr->sa, &addr->addr_len);
+    const int client_socket = accept(listener->sock_fd, addr->sa, &addr->addr_len);
     if (client_socket < 0) {
         client->last_error = errno;
         return false;
