@@ -16,6 +16,7 @@
 #define hash_set_header(set__) container_of(hash_set_entry_header((set__)), struct hash_set_t, entries)
 #define hash_set_length(set__) (hash_set_header((set__))->length)
 #define hash_set_capacity(set__) (hash_set_header((set__))->capacity)
+#define hash_set_allocator(set__) (hash_set_header((set__))->allocator)
 #define hash_set_entry(set__, index__) (_hash_set_entry_at_impl(hash_set_header(set__), (index__), sizeof(*(set__))))
 
 #define hash_table(TKey, TValue) KeyValuePair(TKey, TValue)*
