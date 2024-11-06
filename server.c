@@ -112,17 +112,7 @@ static void dripbox_handle_login(void **hash_table, const struct socket_t client
             .socket = client,
         };
 
-        hash_table_insert(users, _user.username.data, _user);
-
-        for (int i = 0; i < hash_table_capacity(*users); i++) {
-            if (i >= hash_table_length(*users)) { break; }
-            const var entry = hash_set_entry(*users, i);
-            if (HASH_ENTRY_IS_NULL(entry)) { continue; }
-            const var kvp = *(typeof(*users)) entry->value;
-
-            const struct user_t user = kvp.value;
-            printf("Username: %s\n", user.username.data);
-        }
+        hash_table_update(users, _user.username.data, _user);
     }
 
     const size_t len = g_userdata_dir.length + username.length + 1;
@@ -221,7 +211,20 @@ void dripbox_handle_download(const struct user_t user, const struct socket_t cli
     }
     struct stat st = {};
     if (stat(path_buffer, &st) < 0) {
-        log(LOG_ERROR, "%s\n", strerror(errno));
+        const struct string_view_t sv_error = sv_from_cstr(strerror(errno));
+        const struct dripbox_error_header_t error_header = {
+            .version = 1,
+            .type = MSG_ERROR,
+            .error_length = sv_error.length,
+        };
+        if (send(client.sock_fd, &error_header, sizeof error_header, 0) < 0) {
+            log(LOG_ERROR, "%s\n", strerror(errno));
+            return;
+        }
+        if (send(client.sock_fd, sv_error.data, sv_error.length, 0) < 0) {
+            log(LOG_ERROR, "%s\n", strerror(errno));
+            return;
+        }
         return;
     }
 

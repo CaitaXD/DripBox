@@ -11,6 +11,7 @@ enum msg_type {\
     MSG_LOGIN = 1,
     MSG_UPLOAD = 2,
     MSG_DOWNLOAD = 3,
+    MSG_ERROR = 4,
 };
 
 enum { DRIPBOX_MAX_HEADER_SIZE = 4096 };
@@ -37,6 +38,12 @@ struct dripbox_download_header_t {
     unsigned char version: 1;
     unsigned char type: 7;
     size_t file_name_length;
+} __attribute__((packed));
+
+struct dripbox_error_header_t {
+    unsigned char version: 1;
+    unsigned char type: 7;
+    size_t error_length;
 } __attribute__((packed));
 
 struct string_view_t {

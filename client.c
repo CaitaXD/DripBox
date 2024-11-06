@@ -173,8 +173,37 @@ int dripbox_download(const struct socket_t *s, char *file_path) {
 
     uint8_t buffer[DRIPBOX_MAX_HEADER_SIZE] = {};
 
+    struct dripbox_generic_header_t *generic_header = (void *) buffer;
+    if (recv(s->sock_fd, generic_header, sizeof *generic_header, 0) < 0) {
+        log(LOG_ERROR, "%s\n", strerror(errno));
+        return -1;
+    }
+
+    if (generic_header->type == MSG_ERROR) {
+
+        const struct dripbox_error_header_t *error_header = (void *) buffer;
+        const ptrdiff_t diff = sizeof *error_header - sizeof(struct dripbox_generic_header_t);
+        assert(diff > 0 && "???");
+
+        if (recv(s->sock_fd, buffer + sizeof(struct dripbox_generic_header_t), diff, 0) < 0) {
+            log(LOG_ERROR, "%s\n", strerror(errno));
+            return -1;
+        }
+        char *error_msg = (char *) buffer + sizeof *error_header;
+
+        if (recv(s->sock_fd, buffer + sizeof *error_header, error_header->error_length, 0) < 0) {
+            log(LOG_ERROR, "%s\n", strerror(errno));
+            return -1;
+        }
+        printf("Dripbox error: %.*s\n", (int) error_header->error_length, (char *) buffer + sizeof *error_header);
+        return -1;
+    }
+
     struct dripbox_upload_header_t *upload_header = (void *) buffer;
-    if (recv(s->sock_fd, upload_header, sizeof *upload_header, 0) < 0) {
+    const ptrdiff_t diff = sizeof *upload_header - sizeof(struct dripbox_generic_header_t);
+    assert(diff > 0 && "???");
+
+    if (recv(s->sock_fd, upload_header + sizeof(struct dripbox_generic_header_t), diff, 0) < 0) {
         log(LOG_ERROR, "%s\n", strerror(errno));
         return -1;
     }

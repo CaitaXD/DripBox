@@ -149,6 +149,21 @@ enum { HASH_SET_MIN_CAPACITY = 4 };
         result;\
     })
 
+#define hash_table_update(table__, key__, value__) \
+    ({\
+        var __data_ptr = (table__);\
+        var __data = *__data_ptr;\
+        var __header = hash_set_header(__data);\
+        var __key = (key__);\
+        var __value = (value__);\
+        size_t __key_size = sizeof __data->key;\
+        size_t __value_size = sizeof __data->value;\
+        _hash_table_update_impl(&__header, __key_size, &__key, __value_size, &__value);\
+        __data = (void*)__header->entries->value;\
+        *__data_ptr = __data;\
+        void_expression();\
+    })
+
 #define hash_table_contains(table__, key__) \
     ({\
         var __table = (table__);\
@@ -295,14 +310,11 @@ static bool _hash_set_get_location(const struct hash_set_t *set, const size_t el
     return false;
 }
 
-static bool _hash_table_insert_impl(struct hash_set_t **set, const size_t key_size, const void *key,
-                                    const size_t value_size, const void *value) {
-    int32_t hash, location = 0;
+static void _hash_table_insert_location_impl(struct hash_set_t **set,
+                                             const size_t key_size, const void *key,
+                                             const size_t value_size, const void *value,
+                                             int32_t hash, int32_t location) {
     const size_t kvp_size = aligned_to(key_size + value_size, min(8, max(key_size, value_size)));
-    if (_hash_set_get_location(*set, kvp_size, key, &hash, &location)) {
-        return false;
-    }
-
     const int threshold_a = 1;
     const int threshold_b = 1;
     assert(((double)threshold_a / (double)threshold_b) >= 1 && "Thresholds must be >= 1");
@@ -359,6 +371,30 @@ static bool _hash_table_insert_impl(struct hash_set_t **set, const size_t key_si
         }
         entry->next = location;
     }
+}
+
+static void _hash_table_update_impl(struct hash_set_t **set,
+                                    const size_t key_size, const void *key,
+                                    const size_t value_size, const void *value) {
+    int32_t hash, location = 0;
+    const size_t kvp_size = aligned_to(key_size + value_size, min(8, max(1, key_size, value_size)));
+    if (_hash_set_get_location(*set, kvp_size, key, &hash, &location)) {
+        struct hash_entry_t *entry = _hash_set_entry_at_impl(*set, location - 1, kvp_size);
+        memcpy(entry->value + key_size, value, value_size);
+        return;
+    }
+    _hash_table_insert_location_impl(set, key_size, key, value_size, value, hash, location);
+}
+
+static bool _hash_table_insert_impl(struct hash_set_t **set, const size_t key_size, const void *key,
+                                    const size_t value_size, const void *value) {
+    int32_t hash, location = 0;
+    const size_t kvp_size = aligned_to(key_size + value_size, min(8, max(1, key_size, value_size)));
+    if (_hash_set_get_location(*set, kvp_size, key, &hash, &location)) {
+        return false;
+    }
+
+    _hash_table_insert_location_impl(set, key_size, key, value_size, value, hash, location);
     return true;
 }
 
