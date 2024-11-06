@@ -141,8 +141,8 @@ enum { HASH_SET_MIN_CAPACITY = 4 };
         var __header = hash_set_header(__data);\
         var __key = (key__);\
         var __value = (value__);\
-        size_t __key_size = sizeof(__data->key);\
-        size_t __value_size = sizeof(__data->value);\
+        size_t __key_size = sizeof __data->key;\
+        size_t __value_size = sizeof __data->value;\
         bool result = _hash_table_insert_impl(&__header, __key_size, &__key, __value_size, &__value);\
         __data = (void*)__header->entries->value;\
         *__data_ptr = __data;\
@@ -298,7 +298,7 @@ static bool _hash_set_get_location(const struct hash_set_t *set, const size_t el
 static bool _hash_table_insert_impl(struct hash_set_t **set, const size_t key_size, const void *key,
                                     const size_t value_size, const void *value) {
     int32_t hash, location = 0;
-    const size_t kvp_size = aligned_to(key_size + value_size, max(key_size, value_size));
+    const size_t kvp_size = aligned_to(key_size + value_size, min(8, max(key_size, value_size)));
     if (_hash_set_get_location(*set, kvp_size, key, &hash, &location)) {
         return false;
     }
@@ -324,9 +324,8 @@ static bool _hash_table_insert_impl(struct hash_set_t **set, const size_t key_si
             .capacity = new_capacity,
         };
 
-        memset(new_set->entries, 0, entries_size);
+        _hash_set_erase_impl(new_set, kvp_size, 0, new_set->capacity);
         memcpy(new_set->entries, (*set)->entries, entry_size * (*set)->length);
-        _hash_set_erase_impl(new_set, kvp_size, new_set->length, new_set->capacity);
 
         dealloc((*set)->allocator, *set);
         *set = new_set;

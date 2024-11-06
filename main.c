@@ -65,6 +65,10 @@ int parse_commandline(const int argc, char *argv[argc]) {
     return SUCCESS;
 }
 
+/*
+ * Main
+ */
+
 int main(const int argc, char *argv[argc]) {
     switch (parse_commandline(argc, argv)) {
         case USAGE_COMMAND:

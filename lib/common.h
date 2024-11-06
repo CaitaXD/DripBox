@@ -47,11 +47,13 @@
 #define CONCAT(x__, y__) CONCAT_(x__, y__)
 #define LINE_VAR(name__) CONCAT(name__, __LINE__)
 
-#define scoped_expression(begin__, ...) \
+#define scope(begin__, ...) \
     for (bool LINE_VAR(__once_guard) = true; LINE_VAR(__once_guard); LINE_VAR(__once_guard) = false) \
     for (begin__; LINE_VAR(__once_guard); LINE_VAR(__once_guard) = false, ({__VA_ARGS__;}))
 
-#define finalizer_expression(expression__) scoped_expression(, expression__)
+#define exit_scope break
+
+#define finalizer(expression__) scoped_expression(, expression__)
 
 #define ARRAY_LITERAL(size__, ...) (uint8_t[(size__)]){ __VA_ARGS__ }
 

@@ -9,6 +9,9 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <fcntl.h>
+#include <poll.h>
+#include <common.h>
+#include <stddef.h>
 
 #ifndef NETWORK_API
 #   define NETWORK_API static inline
@@ -43,7 +46,6 @@ NETWORK_API bool tcp_listener_close(struct tcp_listener_t *listener);
 NETWORK_API struct socket_t tcp_listener_accept(const struct tcp_listener_t *listener,
                                                 struct socket_address_t *addr);
 
-NETWORK_API struct socket_t socket_new(int domain);
 
 NETWORK_API bool tcp_client_connect(struct socket_t *client, struct socket_address_t *addr);
 
@@ -57,10 +59,18 @@ NETWORK_API struct socket_stream_t socket_stream(struct socket_t *socket, int fl
 NETWORK_API bool tcp_server_incoming_next(const struct tcp_listener_t *listener, struct socket_t *client,
                                           struct socket_address_t *addr);
 
+NETWORK_API struct socket_t socket_new(int domain);
+
+NETWORK_API bool socket_pending(const struct socket_t *socket, int timeout);
+
+NETWORK_API bool socket_poll_next(size_t len, const struct socket_t *sockets[len], int events, int timeout);
+
+NETWORK_API ssize_t socket_read_exactly(struct socket_t *socket, uint8_t *buffer, size_t length);
+
 #define socket_option(fd__, level__, VAL)\
     setsockopt(fd__, level__, SOL_SOCKET, (typeof(VAL)[1]){(VAL)}, sizeof (VAL))
 
-#define socket_non_blocking(fd__)\
+#define socket_set_non_blocking(fd__)\
     fcntl(fd__, F_SETFL, O_NONBLOCK)
 
 #define ipv4_endpoint_new(host_ip__, host_port__)\
@@ -89,22 +99,22 @@ struct tcp_listener_t tcp_listener_new(const int domain) {
 
 const char *socket_address_to_cstr(const struct socket_address_t *addr, const struct allocator_t *allocator) {
     switch (addr->sa->sa_family) {
-        case AF_INET: {
-            const uint16_t port = ntohs(((struct sockaddr_in *) addr->sa)->sin_port);
-            char *buffer = alloc(allocator, INET_ADDRSTRLEN + 6);
-            inet_ntop(AF_INET, &((struct sockaddr_in *) addr->sa)->sin_addr, buffer, INET_ADDRSTRLEN);
-            sprintf(buffer + strlen(buffer), ":%d", port);
-            return buffer;
-        }
-        case AF_INET6: {
-            const uint16_t port = ntohs(((struct sockaddr_in6 *) addr->sa)->sin6_port);
-            char *buffer = alloc(allocator, INET6_ADDRSTRLEN + 6);
-            inet_ntop(AF_INET6, &((struct sockaddr_in6 *) addr->sa)->sin6_addr, buffer, INET6_ADDRSTRLEN);
-            sprintf(buffer + strlen(buffer), ":%d", port);
-            return buffer;
-        }
-        default:
-            break;
+    case AF_INET: {
+        const uint16_t port = ntohs(((struct sockaddr_in *) addr->sa)->sin_port);
+        char *buffer = alloc(allocator, INET_ADDRSTRLEN + 6);
+        inet_ntop(AF_INET, &((struct sockaddr_in *) addr->sa)->sin_addr, buffer, INET_ADDRSTRLEN);
+        sprintf(buffer + strlen(buffer), ":%d", port);
+        return buffer;
+    }
+    case AF_INET6: {
+        const uint16_t port = ntohs(((struct sockaddr_in6 *) addr->sa)->sin6_port);
+        char *buffer = alloc(allocator, INET6_ADDRSTRLEN + 6);
+        inet_ntop(AF_INET6, &((struct sockaddr_in6 *) addr->sa)->sin6_addr, buffer, INET6_ADDRSTRLEN);
+        sprintf(buffer + strlen(buffer), ":%d", port);
+        return buffer;
+    }
+    default:
+        break;
     }
     unreachable();
 }
@@ -189,6 +199,20 @@ bool socket_close(struct socket_t *s) {
     return true;
 }
 
+bool socket_pending(const struct socket_t *socket, const int timeout) {
+    if (socket->last_error != 0) { return false; }
+
+    struct pollfd pfd = {
+        .fd = socket->sock_fd,
+        .events = POLLIN,
+    };
+    const int event_count = poll(&pfd, 1, timeout);
+    if (event_count > 0) {
+        return pfd.revents & POLLIN;
+    }
+    return false;
+}
+
 struct stream_t {
     ssize_t (*write)(struct stream_t *stream, size_t length, uint8_t data[length]);
 
@@ -241,6 +265,41 @@ bool tcp_server_incoming_next(const struct tcp_listener_t *listener, struct sock
     client->sock_fd = client_socket;
     client->addr = addr;
     return true;
+}
+
+bool socket_poll_next(const size_t len, const struct socket_t *sockets[len],
+                      const int events, const int timeout) {
+    struct pollfd poll_fds[len];
+    for (size_t i = 0; i < len; i++) {
+        poll_fds[i] = (struct pollfd){
+            .fd = sockets[i]->sock_fd,
+            .events = events,
+        };
+    }
+    const int event_count = poll(poll_fds, len, timeout);
+    if (event_count < 0) {
+        return false;
+    }
+    for (size_t i = 0; i < len; i++) {
+        if (poll_fds[i].revents & events) {
+            return true;
+        }
+    }
+    return false;
+}
+
+ssize_t socket_read_exactly(struct socket_t *socket, uint8_t *buffer, const size_t length) {
+    ptrdiff_t left_to_read = length;
+    while (left_to_read > 0) {
+        const ssize_t recvd = recv(socket->sock_fd, buffer, left_to_read, 0);
+        if (recvd < 0) {
+            socket->last_error = errno;
+            return -1;
+        }
+        buffer += recvd;
+        left_to_read -= recvd;
+    }
+    return length;
 }
 
 #endif //NETWORK_H

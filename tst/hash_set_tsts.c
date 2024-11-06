@@ -288,5 +288,60 @@ int main() {
     printf("%d * 2 = %d\n", 1, hash_table_at(map, 1));
     printf("%d * 2 = %d\n", 3, hash_table_at(map, 3));
 
+    struct string_view_t {
+        size_t length;
+        char *data;
+    };
+
+    struct socket_t {
+        int sock_fd;
+        int last_error;
+        struct socket_address_t *addr;
+    };
+
+    struct user_t {
+        struct string_view_t username;
+        struct socket_t socket;
+    };
+
+    var users = hash_table_new(char*, struct user_t, string_hash, string_equals, &default_allocator);
+
+    struct user_t user_1 = {
+        .username = (struct string_view_t){
+            .data = "John",
+            .length = sizeof "John" - 1,
+        },
+        .socket = (struct socket_t){
+            .sock_fd = 1,
+            .last_error = 0,
+            .addr = NULL,
+        },
+    };
+
+    struct user_t user_2 = {
+        .username = (struct string_view_t){
+            .data = "Jane",
+            .length = sizeof "Jane" - 1,
+        },
+        .socket = (struct socket_t){
+            .sock_fd = 2,
+            .last_error = 0,
+            .addr = NULL,
+        },
+    };
+
+    hash_table_insert(&users, user_1.username.data, user_1);
+    hash_table_insert(&users, user_2.username.data, user_2);
+
+    for (int i = 0; i < hash_table_capacity(users); i++) {
+        if (i >= hash_table_length(users)) { break; }
+        const var entry = hash_set_entry(users, i);
+        if (HASH_ENTRY_IS_NULL(entry)) { continue; }
+        const var kvp = *(typeof(users)) entry->value;
+
+        const struct user_t user = kvp.value;
+        printf("Username: %s\n", user.username.data);
+    }
+
     return 0;
 }
