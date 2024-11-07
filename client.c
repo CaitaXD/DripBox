@@ -8,38 +8,20 @@
 
 struct string_view_t username = {};
 
-static int send_dripbox_payload(const struct socket_t *s, const struct dripbox_login_header_t header,
-                                uint8_t data[header.length]) {
-    int sent = 0, ret;
+static int dripbox_login(struct socket_t *s, struct string_view_t username);
 
-    if ((ret = send(s->sock_fd, &header, sizeof header, 0)) < 0) {
-        log(LOG_ERROR, "Error sending header: %s\n", strerror(s->last_error));
-        return -1;
-    }
-    sent += ret;
+static int dripbox_upload(struct socket_t *s, char *file_path);
 
-    if ((ret = send(s->sock_fd, data, header.length, 0)) < 0) {
-        log(LOG_ERROR, "Error sending data: %s\n", strerror(s->last_error));
-        return -1;
-    }
-    sent += ret;
-    return sent;
-}
-
-static int dripbox_login(const struct socket_t *s, struct string_view_t username);
-
-static int dripbox_upload(const struct socket_t *s, char *file_path);
-
-static int dripbox_download(const struct socket_t *s, char *file_path);
+static int dripbox_download(struct socket_t *s, char *file_path);
 
 int client_main() {
     var server_endpoint = ipv4_endpoint_new(ip, port);
-    var sock = socket_new(AF_INET);
-    if (!tcp_client_connect(&sock, &server_endpoint)) {
-        log(LOG_ERROR, "%s", strerror(sock.last_error));
+    var s = socket_new(AF_INET);
+    if (!tcp_client_connect(&s, &server_endpoint)) {
+        log(LOG_ERROR, "%s", strerror(s.error));
         return -1;
     }
-    dripbox_login(&sock, username);
+    dripbox_login(&s, username);
 
     const struct string_view_t sync_dir_path = (struct string_view_t){
         .data = "./sync_dir/",
@@ -62,6 +44,7 @@ int client_main() {
 
     bool quit = false;
     while (!quit) {
+        s.error = 0;
         const struct string_view_t cmd = sv_from_cstr(fgets(buffer, sizeof buffer, stdin));
         if (cmd.length == 0) {
             continue;
@@ -73,7 +56,7 @@ int client_main() {
             if (file_path.data[file_path.length - 1] == '\n') {
                 file_path.data[file_path.length - 1] = 0;
             }
-            dripbox_upload(&sock, file_path.data);
+            dripbox_upload(&s, file_path.data);
         } else if (strncmp(cmd.data, cmd_download.data, cmd_download.length) == 0) {
             const var parts = sv_token(cmd, sv_from_cstr(" "));
             const struct string_view_t file_path = parts.data[1];
@@ -81,28 +64,41 @@ int client_main() {
                 file_path.data[file_path.length - 1] = 0;
             }
 
-            dripbox_download(&sock, path_combine(sync_dir_path.data, file_path.data));
+            dripbox_download(&s, path_combine(tls_dripbox_path_buffer, sync_dir_path.data, file_path.data));
         }
     }
 
-    close(sock.sock_fd);
+    close(s.sock_fd);
     return 0;
 }
 
 
-int dripbox_login(const struct socket_t *s, const struct string_view_t username) {
-    if (s->last_error != 0) { return -1; }
+int dripbox_login(struct socket_t *s, const struct string_view_t username) {
+    if (s->error != 0) { return -1; }
 
-    const struct dripbox_login_header_t login_msg_header = {
+    const struct dripbox_msg_header_t msg_header = {
         .version = 1,
         .type = MSG_LOGIN,
+    };
+
+    const struct dripbox_login_header_t login_msg_header = {
         .length = username.length,
     };
-    return send_dripbox_payload(s, login_msg_header, (uint8_t *) username.data);
+
+    ssize_t sent = 0;
+    sent += socket_write(s, size_and_address(msg_header), 0);
+    sent += socket_write(s, size_and_address(login_msg_header), 0);
+    sent += socket_write(s, sv_args(username), 0);
+
+    if (s->error != 0) {
+        log(LOG_ERROR, "%s\n", strerror(s->error));
+        return -1;
+    }
+    return sent;
 }
 
-int dripbox_upload(const struct socket_t *s, char *file_path) {
-    if (s->last_error != 0) { return -1; }
+int dripbox_upload(struct socket_t *s, char *file_path) {
+    if (s->error != 0) { return -1; }
 
     struct stat file_stat = {};
     struct string_view_t it = sv_from_cstr(file_path);
@@ -115,95 +111,89 @@ int dripbox_upload(const struct socket_t *s, char *file_path) {
         return -1;
     }
 
-    const struct dripbox_upload_header_t upload_header = {
+    const struct dripbox_msg_header_t msg_header = {
         .version = 1,
         .type = MSG_UPLOAD,
+    };
+
+    const struct dripbox_upload_header_t upload_header = {
         .file_name_length = file_name.length,
         .payload_length = file_stat.st_size,
     };
 
-    int sent = 0, result;
+    ssize_t sent = 0;
 
-    if ((result = send(s->sock_fd, &upload_header, sizeof upload_header, 0)) < 0) {
-        log(LOG_ERROR, "Error sending header: %s\n", strerror(s->last_error));
-        return -1;
-    }
-    sent += result;
+    sent += socket_write(s, size_and_address(msg_header), 0);
+    sent += socket_write(s, size_and_address(upload_header), 0);
+    sent += socket_write(s, sv_args(file_name), 0);
 
-    if ((result = send(s->sock_fd, file_name.data, upload_header.file_name_length, 0)) < 0) {
-        log(LOG_ERROR, "Error sending file: %s\n", strerror(errno));
-        return -1;
-    }
-    sent += result;
-
-    scope(const int f = open(file_path, O_RDONLY), close(f)) {
-        if ((result = sendfile(s->sock_fd, f, NULL, upload_header.payload_length)) < 0) {
-            log(LOG_ERROR, "Error sending file: %s\n", strerror(s->last_error));
-            sent = -1;
+    scope(FILE *file = fopen(file_path, "rb"), fclose(file)) {
+        if (file == NULL) {
+            log(LOG_ERROR, "%s\n", strerror(errno));
+            break;
         }
+        sent += socket_read_file(s, file, file_stat.st_size);
     }
-
-    sent += result;
+    if (s->error != 0) {
+        log(LOG_ERROR, "%s\n", strerror(s->error));
+        return -1;
+    }
     return sent;
 }
 
-int dripbox_download(const struct socket_t *s, char *file_path) {
-    if (s->last_error != 0) { return -1; }
+int dripbox_download(struct socket_t *s, char *file_path) {
+    if (s->error != 0) { return -1; }
 
     struct string_view_t it = sv_from_cstr(file_path);
     struct string_view_t file_name = {};
     while (sv_split_next(&it, sv_from_cstr("/"), &file_name)) {
     }
 
-    const struct dripbox_download_header_t download_header = {
+    const struct dripbox_msg_header_t in_msg_header = {
         .version = 1,
         .type = MSG_DOWNLOAD,
+    };
+
+    const struct dripbox_download_header_t download_header = {
         .file_name_length = file_name.length,
     };
 
-    if (send(s->sock_fd, &download_header, sizeof download_header, 0) < 0) {
-        log(LOG_ERROR, "%s\n", strerror(s->last_error));
+    socket_write(s, size_and_address(in_msg_header), 0);
+    socket_write(s, size_and_address(download_header), 0);
+    socket_write(s, download_header.file_name_length, (uint8_t *) file_name.data, 0);
+    if (s->error != 0) {
+        log(LOG_ERROR, "%s\n", strerror(s->error));
         return -1;
     }
-
-    if (send(s->sock_fd, file_name.data, download_header.file_name_length, 0) < 0) {
-        log(LOG_ERROR, "%s\n", strerror(errno));
-        return -1;
-    }
-
     uint8_t buffer[DRIPBOX_MAX_HEADER_SIZE] = {};
 
-    struct dripbox_generic_header_t *generic_header = (void *) buffer;
-    if (recv(s->sock_fd, generic_header, sizeof *generic_header, 0) < 0) {
+    struct dripbox_msg_header_t *out_msg_header = (void *) buffer;
+    if (socket_read_exactly(s, size_and_address(*out_msg_header)) < 0) {
         log(LOG_ERROR, "%s\n", strerror(errno));
         return -1;
     }
 
-    if (generic_header->type == MSG_ERROR) {
+    if (out_msg_header->type == MSG_ERROR) {
+        const struct dripbox_error_header_t *error_header = (void *) buffer + sizeof *out_msg_header;
+        const struct string_view_t error_msg = {
+            .data = (char *) buffer + sizeof *error_header,
+            .length = error_header->error_length,
+        };
 
-        const struct dripbox_error_header_t *error_header = (void *) buffer;
-        const ptrdiff_t diff = sizeof *error_header - sizeof(struct dripbox_generic_header_t);
-        assert(diff > 0 && "???");
-
-        if (recv(s->sock_fd, buffer + sizeof(struct dripbox_generic_header_t), diff, 0) < 0) {
-            log(LOG_ERROR, "%s\n", strerror(errno));
-            return -1;
+        socket_read_exactly(s, size_and_address(*error_header));
+        socket_read_exactly(s, sv_args(error_msg));
+        if (s->error != 0) {
+            log(LOG_ERROR, "%s\n", strerror(s->error));
+            printf("Dripbox error: Unknown\n");
+        } else {
+            printf("Dripbox error: %.*s\n", (int) sv_args(error_msg));
         }
-        char *error_msg = (char *) buffer + sizeof *error_header;
-
-        if (recv(s->sock_fd, buffer + sizeof *error_header, error_header->error_length, 0) < 0) {
-            log(LOG_ERROR, "%s\n", strerror(errno));
-            return -1;
-        }
-        printf("Dripbox error: %.*s\n", (int) error_header->error_length, (char *) buffer + sizeof *error_header);
         return -1;
     }
 
-    struct dripbox_upload_header_t *upload_header = (void *) buffer;
-    const ptrdiff_t diff = sizeof *upload_header - sizeof(struct dripbox_generic_header_t);
-    assert(diff > 0 && "???");
+    struct dripbox_upload_header_t *upload_header = (void *) buffer + sizeof *out_msg_header;
 
-    if (recv(s->sock_fd, upload_header + sizeof(struct dripbox_generic_header_t), diff, 0) < 0) {
+    if (socket_read_exactly(s, size_and_address(*upload_header)) < 0) {
         log(LOG_ERROR, "%s\n", strerror(errno));
         return -1;
     }
@@ -213,18 +203,18 @@ int dripbox_download(const struct socket_t *s, char *file_path) {
         ssize_t length = upload_header->payload_length;
         while (length > 0) {
             const ssize_t result = recv(s->sock_fd, buffer, DRIPBOX_MAX_HEADER_SIZE, 0);
-            if (result == 0) { exit_scope; }
+            if (result == 0) { break; }
             if (result < 0) {
                 log(LOG_ERROR, "%s\n", strerror(errno));
                 got = -1;
-                exit_scope;
+                break;
             }
             length -= result;
             got += result;
             if (fwrite(buffer, sizeof(uint8_t), result, file) < 0) {
                 log(LOG_ERROR, "%s\n", strerror(errno));
                 got = -1;
-                exit_scope;
+                break;
             }
         }
     }

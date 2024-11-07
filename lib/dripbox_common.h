@@ -16,33 +16,25 @@ enum msg_type {\
 
 enum { DRIPBOX_MAX_HEADER_SIZE = 4096 };
 
-struct dripbox_generic_header_t {
+struct dripbox_msg_header_t {
     unsigned char version: 1;
     unsigned char type: 7;
 } __attribute__((packed));
 
 struct dripbox_login_header_t {
-    unsigned char version: 1;
-    unsigned char type: 7;
     size_t length;
 } __attribute__((packed));
 
 struct dripbox_upload_header_t {
-    unsigned char version: 1;
-    unsigned char type: 7;
     size_t file_name_length;
     size_t payload_length;
 } __attribute__((packed));
 
 struct dripbox_download_header_t {
-    unsigned char version: 1;
-    unsigned char type: 7;
     size_t file_name_length;
 } __attribute__((packed));
 
 struct dripbox_error_header_t {
-    unsigned char version: 1;
-    unsigned char type: 7;
     size_t error_length;
 } __attribute__((packed));
 
@@ -50,6 +42,8 @@ struct string_view_t {
     size_t length;
     char *data;
 };
+
+#define sv_args(sv__) (sv__).length, (sv__).data
 
 struct readonly_span_t {
     size_t length;
@@ -99,26 +93,21 @@ static ssize_t _sv_path_combine_impl(struct string_view_t *dst,
     return dst->length;
 }
 
-#define sv_path_combine(...) ({\
-    struct string_view_t _buffer = {\
-        .data = (char[PATH_MAX]){},\
-        .length = 0,\
-    };\
-    const struct string_view_t __sv_args[] = {__VA_ARGS__};\
+#define sv_path_combine(dst__, ...) ({\
+    const struct string_view_t __sv_args[] = {__VA_ARGsocket__};\
     const size_t __len = sizeof __sv_args / sizeof __sv_args[0];\
-    struct string_view_t __acc = _buffer;\
+    struct string_view_t __acc = dst__;\
     for (size_t i = 0; i < __len; i++) {\
         _sv_path_combine_impl(&__acc, __acc, __sv_args[i]);\
     }\
     __acc;\
 })
 
-#define path_combine(...) ({\
-    char _buffer[PATH_MAX] = {};\
+#define path_combine(dst__, ...) ({\
     char *__cstr_args[] = {__VA_ARGS__};\
     const size_t __len = sizeof __cstr_args / sizeof __cstr_args[0];\
     struct string_view_t __acc = (struct string_view_t){\
-        .data = _buffer,\
+        .data = (dst__),\
         .length = 0,\
     };\
     for (size_t i = 0; i < __len; i++) {\
@@ -202,22 +191,22 @@ static errno_t sockdump_to_file(const struct socket_t *s, const char *path, size
     scope(FILE *file = fopen(path, "wb"), fclose(file)) {
         if (file == NULL) {
             ret = errno;
-            exit_scope;
+            break;
         }
         enum { BUFFER_SIZE = 256 };
         uint8_t buffer[BUFFER_SIZE] = {};
 
         while (length > 0) {
             const ssize_t got = recv(s->sock_fd, buffer, BUFFER_SIZE, 0);
-            if (got == 0) { exit_scope; }
+            if (got == 0) { break; }
             if (got < 0) {
                 ret = errno;
-                exit_scope;
+                break;
             }
             length -= got;
             if (fwrite(buffer, sizeof(uint8_t), got, file) < 0) {
                 ret = errno;
-                exit_scope;
+                break;
             }
         }
     }

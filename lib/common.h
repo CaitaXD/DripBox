@@ -51,8 +51,6 @@
     for (bool LINE_VAR(__once_guard) = true; LINE_VAR(__once_guard); LINE_VAR(__once_guard) = false) \
     for (begin__; LINE_VAR(__once_guard); LINE_VAR(__once_guard) = false, ({__VA_ARGS__;}))
 
-#define exit_scope break
-
 #define finalizer(expression__) scoped_expression(, expression__)
 
 #define ARRAY_LITERAL(size__, ...) (uint8_t[(size__)]){ __VA_ARGS__ }
@@ -152,5 +150,7 @@ static bool string_equals(const void *a, const void *b) {
     const char *str_b = *(char **) b;
     return strcmp(str_a, str_b) == 0;
 }
+
+#define size_and_address(struct__) sizeof(struct__), (uint8_t*)&(struct__)
 
 #endif //COMMON_H

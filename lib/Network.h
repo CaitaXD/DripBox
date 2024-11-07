@@ -12,6 +12,7 @@
 #include <poll.h>
 #include <common.h>
 #include <stddef.h>
+#include <sys/sendfile.h>
 
 #ifndef NETWORK_API
 #   define NETWORK_API static inline
@@ -31,7 +32,7 @@ struct tcp_listener_t {
 
 struct socket_t {
     int sock_fd;
-    int last_error;
+    int error;
     struct socket_address_t *addr;
 };
 
@@ -63,9 +64,13 @@ NETWORK_API struct socket_t socket_new(int domain);
 
 NETWORK_API bool socket_pending(const struct socket_t *socket, int timeout);
 
-NETWORK_API bool socket_poll_next(size_t len, const struct socket_t *sockets[len], int events, int timeout);
+NETWORK_API bool poll_next(size_t len, const struct pollfd fds[static len], int events);
 
-NETWORK_API ssize_t socket_read_exactly(struct socket_t *socket, uint8_t *buffer, size_t length);
+NETWORK_API ssize_t socket_read_exactly(struct socket_t *socket, size_t length, uint8_t buffer[static length]);
+
+NETWORK_API ssize_t socket_read(struct socket_t *socket, size_t length, uint8_t buffer[static length], int flags);
+
+NETWORK_API ssize_t socket_write(struct socket_t *socket, size_t length, uint8_t buffer[static length], int flags);
 
 #define socket_option(fd__, level__, VAL)\
     setsockopt(fd__, level__, SOL_SOCKET, (typeof(VAL)[1]){(VAL)}, sizeof (VAL))
@@ -145,13 +150,13 @@ bool tcp_listener_listen(struct tcp_listener_t *listener, const int backlog) {
 
 struct socket_t tcp_listener_accept(const struct tcp_listener_t *listener, struct socket_address_t *addr) {
     struct socket_t client = {
-        .last_error = listener->last_error,
+        .error = listener->last_error,
         .addr = addr,
     };
     if (listener->last_error != 0) { return client; }
     client.sock_fd = accept(listener->sock_fd, client.addr->sa, &client.addr->addr_len);
     if (client.sock_fd < 0) {
-        client.last_error = errno;
+        client.error = errno;
         return client;
     }
     return client;
@@ -173,26 +178,38 @@ struct socket_t socket_new(const int domain) {
     };
     client.sock_fd = socket(domain, SOCK_STREAM, IPPROTO_TCP);
     if (client.sock_fd < 0) {
-        client.last_error = errno;
+        client.error = errno;
         return client;
     }
     return client;
 }
 
 bool tcp_client_connect(struct socket_t *client, struct socket_address_t *addr) {
-    if (client->last_error != 0) { return false; }
+    if (client->error != 0) { return false; }
     client->addr = addr;
     if (connect(client->sock_fd, addr->sa, addr->addr_len) < 0) {
-        client->last_error = errno;
+        client->error = errno;
         return false;
     }
     return true;
 }
 
+bool tcp_server_incoming_next(const struct tcp_listener_t *listener, struct socket_t *client,
+                              struct socket_address_t *addr) {
+    const int client_socket = accept(listener->sock_fd, addr->sa, &addr->addr_len);
+    if (client_socket < 0) {
+        client->error = errno;
+        return false;
+    }
+    client->sock_fd = client_socket;
+    client->addr = addr;
+    return true;
+}
+
 bool socket_close(struct socket_t *s) {
-    if (s->last_error != 0) { return false; }
+    if (s->error != 0) { return false; }
     if (close(s->sock_fd) < 0) {
-        s->last_error = errno;
+        s->error = errno;
         return false;
     }
     s->sock_fd = -1;
@@ -200,7 +217,7 @@ bool socket_close(struct socket_t *s) {
 }
 
 bool socket_pending(const struct socket_t *socket, const int timeout) {
-    if (socket->last_error != 0) { return false; }
+    if (socket->error != 0) { return false; }
 
     struct pollfd pfd = {
         .fd = socket->sock_fd,
@@ -213,93 +230,61 @@ bool socket_pending(const struct socket_t *socket, const int timeout) {
     return false;
 }
 
-struct stream_t {
-    ssize_t (*write)(struct stream_t *stream, size_t length, uint8_t data[length]);
-
-    ssize_t (*read)(struct stream_t *stream, size_t length, uint8_t data[length]);
-};
-
-struct socket_stream_t {
-    struct stream_t stream;
-    struct socket_t *socket;
-    int flags;
-};
-
-static ssize_t socket_write(struct stream_t *stream, const size_t length, uint8_t data[length]) {
-    const var socket_stream = container_of(stream, struct socket_stream_t, stream);
-    const var socket = socket_stream->socket;
-    if (socket->last_error != 0) {
-        return -1;
-    }
-    return send(socket->sock_fd, data, length, socket_stream->flags);
-}
-
-static ssize_t socket_read(struct stream_t *stream, const size_t length, uint8_t data[length]) {
-    const var socket_stream = container_of(stream, struct socket_stream_t, stream);
-    const var socket = socket_stream->socket;
-    if (socket->last_error != 0) {
-        return -1;
-    }
-    return recv(socket->sock_fd, data, length, socket_stream->flags);
-}
-
-struct socket_stream_t socket_stream(struct socket_t *socket, const int flags) {
-    const struct socket_stream_t stream = {
-        .stream = {
-            .write = socket_write,
-            .read = socket_read,
-        },
-        .socket = socket,
-        .flags = flags,
-    };
-    return stream;
-}
-
-bool tcp_server_incoming_next(const struct tcp_listener_t *listener, struct socket_t *client,
-                              struct socket_address_t *addr) {
-    const int client_socket = accept(listener->sock_fd, addr->sa, &addr->addr_len);
-    if (client_socket < 0) {
-        client->last_error = errno;
-        return false;
-    }
-    client->sock_fd = client_socket;
-    client->addr = addr;
-    return true;
-}
-
-bool socket_poll_next(const size_t len, const struct socket_t *sockets[len],
-                      const int events, const int timeout) {
-    struct pollfd poll_fds[len];
+bool poll_next(const size_t len, const struct pollfd fds[], const int events) {
     for (size_t i = 0; i < len; i++) {
-        poll_fds[i] = (struct pollfd){
-            .fd = sockets[i]->sock_fd,
-            .events = events,
-        };
-    }
-    const int event_count = poll(poll_fds, len, timeout);
-    if (event_count < 0) {
-        return false;
-    }
-    for (size_t i = 0; i < len; i++) {
-        if (poll_fds[i].revents & events) {
+        if (fds[i].revents & events) {
             return true;
         }
     }
     return false;
 }
 
-ssize_t socket_read_exactly(struct socket_t *socket, uint8_t *buffer, const size_t length) {
+ssize_t socket_read_exactly(struct socket_t *socket, const size_t length, uint8_t buffer[static length]) {
     ptrdiff_t left_to_read = length;
     while (left_to_read > 0) {
         const ssize_t recvd = recv(socket->sock_fd, buffer, left_to_read, 0);
+        if (recvd  == 0) {
+            return 0;
+        }
         if (recvd < 0) {
-            socket->last_error = errno;
+            socket->error = errno;
             return -1;
         }
         buffer += recvd;
         left_to_read -= recvd;
     }
     return length;
+}
+
+ssize_t socket_read(struct socket_t *socket, const size_t length, uint8_t buffer[static length], int flags) {
+    if (socket->error != 0) { return -1; }
+    if (recv(socket->sock_fd, buffer, length, flags) < 0) {
+        socket->error = errno;
+        return -1;
+    }
+    return length;
+}
+
+ssize_t socket_write(struct socket_t *socket, const size_t length, uint8_t buffer[static length], const int flags) {
+    if (socket->error != 0) { return -1; }
+    if (send(socket->sock_fd, buffer, length, flags) < 0) {
+        socket->error = errno;
+        return -1;
+    }
+    return length;
+}
+
+ssize_t socket_read_file(struct socket_t *socket, FILE *file, const size_t lenght) {
+    if (socket->error != 0) { return -1; }
+    const int fd = fileno(file);
+    if (fd < 0) { return 0; }
+
+    const ssize_t result = sendfile(socket->sock_fd, fd, NULL, lenght);
+    if (result < 0) {
+        socket->error = errno;
+        return -1;
+    }
+    return result;
 }
 
 #endif //NETWORK_H
