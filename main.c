@@ -6,6 +6,7 @@
 #include "dripbox_common.h"
 #include "server.c"
 #include "client.c"
+#include <ifaddrs.h>
 
 enum {
     SUCCESS,
@@ -61,6 +62,23 @@ int parse_commandline(const int argc, char *argv[argc]) {
     return SUCCESS;
 }
 
+void print_network_info(void) {
+    struct ifaddrs *addrs;
+    getifaddrs(&addrs);
+    const struct ifaddrs *tmp = addrs;
+
+    while (tmp) {
+        if (tmp->ifa_addr && tmp->ifa_addr->sa_family == AF_INET) {
+            const struct sockaddr_in *pAddr = (struct sockaddr_in *) tmp->ifa_addr;
+            printf("%s: %s\n", tmp->ifa_name, inet_ntoa(pAddr->sin_addr));
+        }
+
+        tmp = tmp->ifa_next;
+    }
+
+    freeifaddrs(addrs);
+}
+
 int main(const int argc, char *argv[argc]) {
     switch (parse_commandline(argc, argv)) {
     case USAGE_COMMAND:
@@ -68,6 +86,7 @@ int main(const int argc, char *argv[argc]) {
         return 0;
     case SUCCESS:
         printf("Starting DripBox %s\n", mode);
+        print_network_info();
         printf("IP: %s\n", inet_ntoa(*(struct in_addr *) &ip));
         printf("Port: %d\n", port);
         if (mode_type == MODE_CLIENT) {

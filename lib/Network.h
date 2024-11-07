@@ -53,10 +53,7 @@ NETWORK_API bool tcp_client_connect(struct socket_t *client, struct socket_addre
 
 NETWORK_API bool socket_close(struct socket_t *s);
 
-NETWORK_API const char *
-socket_address_to_cstr(const struct socket_address_t *addr, const struct allocator_t *allocator);
-
-NETWORK_API struct socket_stream_t socket_stream(struct socket_t *socket, int flags);
+NETWORK_API const char *socket_address_to_cstr(const struct socket_address_t *addr, const struct allocator_t *a);
 
 NETWORK_API bool tcp_server_incoming_next(const struct tcp_listener_t *listener, struct socket_t *client,
                                           struct socket_address_t *addr);
@@ -72,6 +69,8 @@ NETWORK_API ssize_t socket_read_exactly(struct socket_t *socket, size_t length, 
 NETWORK_API ssize_t socket_read(struct socket_t *socket, size_t length, uint8_t buffer[static length], int flags);
 
 NETWORK_API ssize_t socket_write(struct socket_t *socket, size_t length, uint8_t buffer[static length], int flags);
+
+NETWORK_API ssize_t socket_read_file(struct socket_t *socket, FILE *file, size_t lenght);
 
 #define socket_option(fd__, level__, VAL)\
     setsockopt(fd__, level__, SOL_SOCKET, (typeof(VAL)[1]){(VAL)}, sizeof (VAL))
@@ -103,23 +102,24 @@ struct tcp_listener_t tcp_listener_new(const int domain) {
     return listener;
 }
 
-const char *socket_address_to_cstr(const struct socket_address_t *addr, const struct allocator_t *allocator) {
+const char *socket_address_to_cstr(const struct socket_address_t *addr, const struct allocator_t *a) {
     switch (addr->sa->sa_family) {
     case AF_INET: {
         const uint16_t port = ntohs(((struct sockaddr_in *) addr->sa)->sin_port);
-        char *buffer = allocator_alloc(allocator, INET_ADDRSTRLEN + 6);
+        char *buffer = allocator_alloc(a, INET_ADDRSTRLEN + 6);
         inet_ntop(AF_INET, &((struct sockaddr_in *) addr->sa)->sin_addr, buffer, INET_ADDRSTRLEN);
         sprintf(buffer + strlen(buffer), ":%d", port);
         return buffer;
     }
     case AF_INET6: {
         const uint16_t port = ntohs(((struct sockaddr_in6 *) addr->sa)->sin6_port);
-        char *buffer = allocator_alloc(allocator, INET6_ADDRSTRLEN + 6);
+        char *buffer = allocator_alloc(a, INET6_ADDRSTRLEN + 6);
         inet_ntop(AF_INET6, &((struct sockaddr_in6 *) addr->sa)->sin6_addr, buffer, INET6_ADDRSTRLEN);
         sprintf(buffer + strlen(buffer), ":%d", port);
         return buffer;
     }
     default:
+        assert(false && "I don't know you, and i don't care to know you");
         break;
     }
     unreachable();
@@ -244,7 +244,7 @@ ssize_t socket_read_exactly(struct socket_t *socket, const size_t length, uint8_
     ptrdiff_t left_to_read = length;
     while (left_to_read > 0) {
         const ssize_t recvd = recv(socket->sock_fd, buffer, left_to_read, 0);
-        if (recvd  == 0) {
+        if (recvd == 0) {
             return 0;
         }
         if (recvd < 0) {

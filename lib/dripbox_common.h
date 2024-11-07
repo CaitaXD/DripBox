@@ -15,8 +15,8 @@ enum msg_type {\
 enum { DRIPBOX_MAX_HEADER_SIZE = 4096 };
 
 struct dripbox_msg_header_t {
-    unsigned char version: 1;
-    unsigned char type: 7;
+    uint8_t version: 1;
+    uint8_t type: 7;
 } __attribute__((packed));
 
 struct dripbox_login_header_t {
