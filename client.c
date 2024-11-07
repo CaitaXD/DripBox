@@ -174,19 +174,16 @@ int dripbox_download(struct socket_t *s, char *file_path) {
     }
 
     if (out_msg_header->type == MSG_ERROR) {
-        const struct dripbox_error_header_t *error_header = (void *) buffer + sizeof *out_msg_header;
-        const struct string_view_t error_msg = {
-            .data = (char *) buffer + sizeof *error_header,
-            .length = error_header->error_length,
-        };
+        var error_header = *(struct dripbox_error_header_t *) (buffer + sizeof *out_msg_header);
+        uint8_t *error_msg_buffer = buffer + sizeof error_header;
 
-        socket_read_exactly(s, size_and_address(*error_header));
-        socket_read_exactly(s, sv_args(error_msg));
+        socket_read_exactly(s, size_and_address(error_header));
+        socket_read_exactly(s, error_header.error_length, error_msg_buffer);
         if (s->error != 0) {
             log(LOG_ERROR, "%s\n", strerror(s->error));
             printf("Dripbox error: Unknown\n");
         } else {
-            printf("Dripbox error: %.*s\n", (int) sv_args(error_msg));
+            printf("Dripbox error: %.*s\n", (int) error_header.error_length, (char *) error_msg_buffer);
         }
         return -1;
     }
