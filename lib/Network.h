@@ -13,6 +13,7 @@
 #include <common.h>
 #include <stddef.h>
 #include <sys/sendfile.h>
+#include <Allocator.h>
 
 #ifndef NETWORK_API
 #   define NETWORK_API static inline
@@ -106,14 +107,14 @@ const char *socket_address_to_cstr(const struct socket_address_t *addr, const st
     switch (addr->sa->sa_family) {
     case AF_INET: {
         const uint16_t port = ntohs(((struct sockaddr_in *) addr->sa)->sin_port);
-        char *buffer = alloc(allocator, INET_ADDRSTRLEN + 6);
+        char *buffer = allocator_alloc(allocator, INET_ADDRSTRLEN + 6);
         inet_ntop(AF_INET, &((struct sockaddr_in *) addr->sa)->sin_addr, buffer, INET_ADDRSTRLEN);
         sprintf(buffer + strlen(buffer), ":%d", port);
         return buffer;
     }
     case AF_INET6: {
         const uint16_t port = ntohs(((struct sockaddr_in6 *) addr->sa)->sin6_port);
-        char *buffer = alloc(allocator, INET6_ADDRSTRLEN + 6);
+        char *buffer = allocator_alloc(allocator, INET6_ADDRSTRLEN + 6);
         inet_ntop(AF_INET6, &((struct sockaddr_in6 *) addr->sa)->sin6_addr, buffer, INET6_ADDRSTRLEN);
         sprintf(buffer + strlen(buffer), ":%d", port);
         return buffer;

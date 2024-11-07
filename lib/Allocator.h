@@ -11,6 +11,13 @@
 #endif
 
 // Allocator API
+#ifdef USING_ALLOCATOR
+
+#define alloc allocator_alloc
+#define dealloc allocator_dealloc
+#define copy allocator_copy
+
+#endif // USING_ALLOCATOR
 
 struct allocator_t {
     void * (*alloc)(const struct allocator_t *allocator, size_t size);
@@ -18,11 +25,11 @@ struct allocator_t {
     void (*dealloc)(const struct allocator_t *allocator, void *ptr);
 };
 
-ALLOCATOR_API void *alloc(const struct allocator_t *allocator, size_t size);
+ALLOCATOR_API void *allocator_alloc(const struct allocator_t *allocator, size_t size);
 
-ALLOCATOR_API void dealloc(const struct allocator_t *allocator, void *ptr);
+ALLOCATOR_API void allocator_dealloc(const struct allocator_t *allocator, void *ptr);
 
-ALLOCATOR_API void *alloc_copy(const struct allocator_t *allocator, const void *ptr, size_t size);
+ALLOCATOR_API void *allocator_copy(const struct allocator_t *allocator, const void *ptr, size_t size);
 
 #define new(allocator__, type__) (type__*)alloc(allocator__, sizeof(type__))
 
@@ -56,58 +63,71 @@ static struct allocator_t dummy_allocator = {
 };
 
 // Arena Allocator API
+#ifdef USING_ALLOCATOR
 
-struct arena_allocator_t {
+#define arena_t allocator_arena_t
+#define arena_init allocator_arena_init
+#define arena_alloc allocator_arena_alloc
+#define arena_dealloc allocator_arena_dealloc
+#define arena_clear allocator_arena_clear
+#define stack_arena allocator_stack_arena
+#define static_arena allocator_static_arena
+
+#endif // USING_ALLOCATOR
+
+struct allocator_arena_t {
     struct allocator_t allocator;
     uintptr_t min_address;
     uintptr_t max_address;
     uintptr_t current_address;
 };
 
-ALLOCATOR_API struct arena_allocator_t arena_allocator_init(void *address, size_t bytes);
+ALLOCATOR_API struct allocator_arena_t allocator_arena_init(void *address, size_t bytes);
 
-ALLOCATOR_API void *arena_allocator_alloc(struct arena_allocator_t *allocator, size_t size);
+ALLOCATOR_API void *allocator_arena_alloc(struct allocator_arena_t *allocator, size_t size);
 
-ALLOCATOR_API void arena_allocator_dealloc(const struct arena_allocator_t *allocator, const void *ptr);
+ALLOCATOR_API void allocator_arena_dealloc(const struct allocator_arena_t *allocator, const void *ptr);
 
-ALLOCATOR_API void arena_allocator_clear(struct arena_allocator_t *allocator);
+ALLOCATOR_API void allocator_arena_clear(struct allocator_arena_t *allocator);
 
-#define stack_arena(size__) arena_allocator_init(ARRAY_LITERAL(size__), size__)
+#define allocator_stack_arena(size__) allocator_arena_init(ARRAY_LITERAL(size__), size__)
 
-#define static_arena(size__) \
+#define allocator_static_arena(size__) \
     ({\
         static size_t __arena_size = (size__);\
         static uint8_t __arena_array[__arena_size];\
-        arena_allocator_init(__arena_array, __arena_size);\
+        allocator_arena_init(__arena_array, __arena_size);\
     })
 
-void *alloc(const struct allocator_t *allocator, const size_t size) {
+// Allocator Implementation
+
+void *allocator_alloc(const struct allocator_t *allocator, const size_t size) {
     if (allocator == NULL || allocator->alloc == NULL) {
         return NULL;
     }
     return allocator->alloc(allocator, size);
 }
 
-void dealloc(const struct allocator_t *allocator, void *ptr) {
+void allocator_dealloc(const struct allocator_t *allocator, void *ptr) {
     if (allocator == NULL || allocator->dealloc == NULL) {
         return;
     }
     allocator->dealloc(allocator, ptr);
 }
 
-void *alloc_copy(const struct allocator_t *allocator, const void *ptr, const size_t size) {
-    void *copy = alloc(allocator, size);
+void *allocator_copy(const struct allocator_t *allocator, const void *ptr, const size_t size) {
+    void *copy = allocator_alloc(allocator, size);
     memcpy(copy, ptr, size);
     return copy;
 }
 
-// Arena Allocator API
+// Arena Allocator Implementation
 
-struct arena_allocator_t arena_allocator_init(void *address, const size_t bytes) {
-    return (struct arena_allocator_t){
+struct allocator_arena_t allocator_arena_init(void *address, const size_t bytes) {
+    return (struct allocator_arena_t){
         .allocator = {
-            .alloc = (typeof_member(struct allocator_t, alloc)) arena_allocator_alloc,
-            .dealloc = (typeof_member(struct allocator_t, dealloc)) arena_allocator_dealloc
+            .alloc = (typeof_member(struct allocator_t, alloc)) allocator_arena_alloc,
+            .dealloc = (typeof_member(struct allocator_t, dealloc)) allocator_arena_dealloc
         },
         .current_address = (uintptr_t) address,
         .min_address = (uintptr_t) address,
@@ -115,7 +135,7 @@ struct arena_allocator_t arena_allocator_init(void *address, const size_t bytes)
     };
 }
 
-void *arena_allocator_alloc(struct arena_allocator_t *allocator, const size_t size) {
+void *allocator_arena_alloc(struct allocator_arena_t *allocator, const size_t size) {
     assert(allocator != NULL && "Allocator is not initialized");
     if (allocator->current_address + size > allocator->max_address) {
         return NULL;
@@ -125,7 +145,7 @@ void *arena_allocator_alloc(struct arena_allocator_t *allocator, const size_t si
     return (void *) ptr;
 }
 
-void arena_allocator_dealloc(const struct arena_allocator_t *allocator, const void *ptr) {
+void allocator_arena_dealloc(const struct allocator_arena_t *allocator, const void *ptr) {
     assert(allocator != NULL && "Arena allocator was not initialized");
     const intptr_t max = allocator->max_address;
     const intptr_t min = allocator->min_address;
@@ -133,7 +153,7 @@ void arena_allocator_dealloc(const struct arena_allocator_t *allocator, const vo
     assert(address <= max && address >= min && "Pointer is out of the reserved stack region");
 }
 
-void arena_allocator_clear(struct arena_allocator_t *allocator) {
+void allocator_arena_clear(struct allocator_arena_t *allocator) {
     allocator->current_address = allocator->min_address;
 }
 

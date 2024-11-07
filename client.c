@@ -4,7 +4,7 @@
 #include <Network.h>
 #include <string.h>
 #include <dripbox_common.h>
-#include<sys/sendfile.h>
+#include "string_view.h"
 
 struct string_view_t username = {};
 
@@ -191,16 +191,20 @@ int dripbox_download(struct socket_t *s, char *file_path) {
         return -1;
     }
 
-    struct dripbox_upload_header_t *upload_header = (void *) buffer + sizeof *out_msg_header;
+    var upload_header = *(struct dripbox_upload_header_t *) (buffer + sizeof *out_msg_header);
+    uint8_t *file_name_buffer = buffer + sizeof upload_header;
 
-    if (socket_read_exactly(s, size_and_address(*upload_header)) < 0) {
+    socket_read_exactly(s, size_and_address(upload_header));
+    socket_read_exactly(s, upload_header.file_name_length, file_name_buffer);
+
+    if (s->error != 0) {
         log(LOG_ERROR, "%s\n", strerror(errno));
         return -1;
     }
 
     ssize_t got = 0;
     scope(FILE *file = fopen(file_path, "wb"), fclose(file)) {
-        ssize_t length = upload_header->payload_length;
+        ssize_t length = upload_header.payload_length;
         while (length > 0) {
             const ssize_t result = recv(s->sock_fd, buffer, DRIPBOX_MAX_HEADER_SIZE, 0);
             if (result == 0) { break; }

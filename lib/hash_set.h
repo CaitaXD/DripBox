@@ -132,7 +132,12 @@ enum { HASH_SET_MIN_CAPACITY = 4 };
         *((typeof(set__)) __value);\
     })
 
-#define KeyValuePair(TKey, TValue) struct { TKey key; TValue value; }
+#define KeyValuePairAlignment 8
+#define KeyValuePair(TKey, TValue) struct { TKey key; TValue value; } __attribute__((aligned(KeyValuePairAlignment)))
+
+// Since we will be doing pointer arithmetic on a KeyValuePair, without knowing the size of the KeyValuePair
+// we need to align the size of the key + value to the KeyValuePairAlignment
+#define KeyValuePair_size_aligned(key_size, value_size) aligned_to((key_size) + (value_size), KeyValuePairAlignment)
 
 #define hash_table_insert(table__, key__, value__) \
     ({\
@@ -224,13 +229,13 @@ static struct hash_set_t *_hash_set_with_capacity_impl(
     const size_t entry_size = sizeof(struct hash_entry_t) + element_size;
     const size_t entries_size = capacity * entry_size;
     const size_t alloc_size = sizeof(struct hash_set_t) + entries_size;
-    struct hash_set_t *set = alloc(allocator, alloc_size);
+    struct hash_set_t *set = allocator_alloc(allocator, alloc_size);
     assert(set && "Buy more RAM");
     memset(set->entries, 0, entries_size);
     _hash_set_erase_impl(set, element_size, 0, capacity);
 
     const size_t buckets_length = max(next_prime(capacity), HASH_SET_MIN_BUCKETS);
-    int32_t *buckets = alloc(allocator, buckets_length * sizeof(int32_t));
+    int32_t *buckets = allocator_alloc(allocator, buckets_length * sizeof(int32_t));
     assert(buckets && "Buy more RAM");
     memset(buckets, 0, buckets_length * sizeof(int32_t));
 
@@ -263,11 +268,11 @@ static void _hash_set_erase_impl(const struct hash_set_t *set, const size_t elem
 
 static void _hash_set_grow_buckets(struct hash_set_t *set, const size_t element_size, const size_t hint) {
     const size_t new_buckets_length = next_prime(hint);
-    int32_t *new_buckets = alloc(set->allocator, new_buckets_length * sizeof(int32_t));
+    int32_t *new_buckets = allocator_alloc(set->allocator, new_buckets_length * sizeof(int32_t));
     memset(new_buckets, 0, new_buckets_length * sizeof(int32_t));
 
     const size_t len = set->length;
-    dealloc(set->allocator, set->buckets);
+    allocator_dealloc(set->allocator, set->buckets);
     set->length = 0;
     set->buckets = new_buckets;
     set->buckets_length = new_buckets_length;
@@ -314,7 +319,7 @@ static void _hash_table_insert_location_impl(struct hash_set_t **set,
                                              const size_t key_size, const void *key,
                                              const size_t value_size, const void *value,
                                              int32_t hash, int32_t location) {
-    const size_t kvp_size = aligned_to(key_size + value_size, min(8, max(key_size, value_size)));
+    const size_t kvp_size = KeyValuePair_size_aligned(key_size, value_size);
     const int threshold_a = 1;
     const int threshold_b = 1;
     assert(((double)threshold_a / (double)threshold_b) >= 1 && "Thresholds must be >= 1");
@@ -324,7 +329,7 @@ static void _hash_table_insert_location_impl(struct hash_set_t **set,
         const size_t new_capacity = max(HASH_SET_MIN_CAPACITY, (*set)->capacity << 1, (*set)->length);
         const size_t entries_size = new_capacity * entry_size;
         const size_t alloc_size = sizeof(struct hash_set_t) + entries_size;
-        struct hash_set_t *new_set = alloc((*set)->allocator, alloc_size);
+        struct hash_set_t *new_set = allocator_alloc((*set)->allocator, alloc_size);
 
         *new_set = (struct hash_set_t){
             .allocator = (*set)->allocator,
@@ -339,7 +344,7 @@ static void _hash_table_insert_location_impl(struct hash_set_t **set,
         _hash_set_erase_impl(new_set, kvp_size, 0, new_set->capacity);
         memcpy(new_set->entries, (*set)->entries, entry_size * (*set)->length);
 
-        dealloc((*set)->allocator, *set);
+        allocator_dealloc((*set)->allocator, *set);
         *set = new_set;
 
         const size_t hint = max(HASH_SET_MIN_BUCKETS, (*set)->capacity);
@@ -377,7 +382,7 @@ static void _hash_table_update_impl(struct hash_set_t **set,
                                     const size_t key_size, const void *key,
                                     const size_t value_size, const void *value) {
     int32_t hash, location = 0;
-    const size_t kvp_size = aligned_to(key_size + value_size, min(8, max(1, key_size, value_size)));
+    const size_t kvp_size = KeyValuePair_size_aligned(key_size, value_size);
     if (_hash_set_get_location(*set, kvp_size, key, &hash, &location)) {
         struct hash_entry_t *entry = _hash_set_entry_at_impl(*set, location - 1, kvp_size);
         memcpy(entry->value + key_size, value, value_size);

@@ -1,6 +1,12 @@
 #ifndef COMMON_H
 #define COMMON_H
 
+#include <time.h>
+#include <stdio.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+
 #define var __auto_type
 
 #define aligned_to(size__, alignment__) ({\
@@ -57,8 +63,6 @@
 
 #define unreachable() __builtin_unreachable()
 
-#include <time.h>
-
 enum log_level {
     LOG_VERBOSE,
     LOG_DEBUG,
@@ -69,7 +73,6 @@ enum log_level {
 
 const enum log_level MIN_LOG_LEVEL = LOG_VERBOSE;
 
-#include <stdio.h>
 FILE *log_file = NULL;
 
 #define TIMESTAMP_FORMAT "%Y-%m-%d %H:%M:%S %Z"
@@ -100,8 +103,6 @@ static size_t next_power_of_two(const size_t value) {
     }
     return result;
 }
-
-#include <stdbool.h>
 
 static bool is_prime(const int n) {
     // Corner cases

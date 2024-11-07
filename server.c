@@ -9,6 +9,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "string_view.h"
 
 struct user_t {
     struct string_view_t username;
