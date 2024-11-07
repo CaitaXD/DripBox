@@ -9,16 +9,17 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <linux/limits.h>
 
 struct user_t {
     struct string_view_t username;
     struct socket_t socket;
 };
 
+typedef hash_table(char *, struct user_t) user_table_t;
+
 struct incoming_connection_thread_context_t {
     struct tcp_listener_t *listener;
-    hash_table(char*, struct user_t) *hash_table;
+    user_table_t *hash_table;
 };
 
 struct payload_t {
@@ -33,24 +34,17 @@ const struct string_view_t g_userdata_dir = (struct string_view_t){
 
 _Thread_local static uint8_t tls_dripbox_buffer[DRIPBOX_MAX_HEADER_SIZE] = {};
 
-static void dripbox_handle_login(void **hash_table,
-                                 struct socket_t client,
-                                 uint8_t *buffer);
+static void dripbox_handle_login(user_table_t *hash_table, struct socket_t client, uint8_t *buffer);
 
-static void dripbox_handle_upload(struct user_t user,
-                                  struct socket_t client,
-                                  uint8_t *buffer);
+static void dripbox_handle_upload(struct user_t user, struct socket_t client, uint8_t *buffer);
 
-static void dripbox_handle_download(struct user_t user,
-                                    struct socket_t client,
-                                    uint8_t *buffer);
+static void dripbox_handle_download(struct user_t user, struct socket_t client, uint8_t *buffer);
 
-static void handle_massage(void **users_hash_table,
-                           struct user_t user);
+static void handle_massage(user_table_t *hash_table, struct user_t user);
 
-static void *incoming_connections_worker(void *arg);
+static void *incoming_connections_worker(const void *arg);
 
-static void *client_connections_worker(void *arg);
+static void *client_connections_worker(const void *arg);
 
 static int server_main() {
     struct tcp_listener_t listener = tcp_listener_new(AF_INET);
@@ -66,11 +60,11 @@ static int server_main() {
                                     &default_allocator);
     struct incoming_connection_thread_context_t ctx = {
         .listener = &listener,
-        .hash_table = (void *) &hash_table,
+        .hash_table = (user_table_t *) &hash_table,
     };
 
-    pthread_create(&incoming_connection_thread_id, NULL, incoming_connections_worker, &ctx);
-    pthread_create(&client_connection_thread_id, NULL, client_connections_worker, &ctx);
+    pthread_create(&incoming_connection_thread_id, NULL, (void *) incoming_connections_worker, &ctx);
+    pthread_create(&client_connection_thread_id, NULL, (void *) client_connections_worker, &ctx);
 
     while (true) {
         sleep(1);
@@ -81,7 +75,7 @@ static int server_main() {
 
 pthread_mutex_t g_users_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-static void dripbox_handle_login(void **hash_table, struct socket_t client, uint8_t *buffer) {
+static void dripbox_handle_login(user_table_t *hash_table, struct socket_t client, uint8_t *buffer) {
     const struct dripbox_login_header_t *login_header = (void *) buffer;
     ssize_t got = socket_read_exactly(&client, sizeof(struct dripbox_login_header_t), buffer);
     if (got == 0) { return; }
@@ -101,8 +95,7 @@ static void dripbox_handle_login(void **hash_table, struct socket_t client, uint
         return;
     }
 
-    const var users = (hash_table(char*, struct user_t)*) hash_table;
-    const struct allocator_t *a = hash_set_allocator(*users);
+    const struct allocator_t *a = hash_set_allocator(*hash_table);
 
     const struct user_t _user = {
         .username = (struct string_view_t){
@@ -112,7 +105,8 @@ static void dripbox_handle_login(void **hash_table, struct socket_t client, uint
         .socket = client,
     };
 
-    hash_table_update(users, _user.username.data, _user);
+    const char *ip = socket_address_to_cstr(client.addr, a);
+    hash_table_update(hash_table, ip, _user);
 
     const size_t len = g_userdata_dir.length + username.length + 1;
     const int ret = snprintf(tls_dripbox_path_buffer, len, "./userdata/%*s", (int) username.length, username.data);
@@ -233,8 +227,7 @@ void dripbox_handle_download(const struct user_t user, struct socket_t client, u
     }
 }
 
-static void handle_massage(void **users_hash_table,
-                           const struct user_t user) {
+static void handle_massage(user_table_t *hash_table, const struct user_t user) {
     struct socket_t client = user.socket;
     const struct dripbox_msg_header_t *msg_header = (void *) tls_dripbox_buffer;
 
@@ -251,7 +244,7 @@ static void handle_massage(void **users_hash_table,
     switch (msg_header->type) {
     case MSG_NOOP: { return; }
     case MSG_LOGIN: {
-        dripbox_handle_login(users_hash_table, client, buffer);
+        dripbox_handle_login(hash_table, client, buffer);
         break;
     }
     case MSG_UPLOAD: {
@@ -270,30 +263,30 @@ static void handle_massage(void **users_hash_table,
     log(LOG_INFO, "Message Received\nVersion: %d\nType: %s\n", msg_header->version, msg_type);
 }
 
-void *incoming_connections_worker(void *arg) {
+void *incoming_connections_worker(const void *arg) {
     const struct incoming_connection_thread_context_t *context = arg;
     const struct tcp_listener_t *listener = context->listener;
     var addr = ipv4_endpoint_empty();
 
     socket_set_non_blocking(listener->sock_fd);
-    bool quit = false;
+    volatile const bool quit = false;
     while (!quit) {
         struct socket_t client = {};
         while (tcp_server_incoming_next(listener, &client, &addr)) {
             scope(pthread_mutex_lock(&g_users_mutex), pthread_mutex_unlock(&g_users_mutex)) {
-                handle_massage((void **) context->hash_table, (struct user_t){.socket = client});
+                handle_massage(context->hash_table, (struct user_t){.socket = client});
             }
         }
     }
     return NULL;
 }
 
-void *client_connections_worker(void *arg) {
+void *client_connections_worker(const void *arg) {
     const struct incoming_connection_thread_context_t *context = arg;
     const struct tcp_listener_t *listener = context->listener;
 
     socket_set_non_blocking(listener->sock_fd);
-    bool quit = false;
+    volatile const bool quit = false;
     while (!quit) {
         scope(pthread_mutex_lock(&g_users_mutex), pthread_mutex_unlock(&g_users_mutex)) {
             var users = *context->hash_table;
@@ -311,7 +304,7 @@ void *client_connections_worker(void *arg) {
                     continue;
                 }
 
-                handle_massage((void **) &users, user);
+                handle_massage(&users, user);
             }
         }
     }
