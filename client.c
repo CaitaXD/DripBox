@@ -4,7 +4,9 @@
 #include <Network.h>
 #include <string.h>
 #include <dripbox_common.h>
-#include "string_view.h"
+#include <inotify_common.h>
+#include <sys/sendfile.h>
+#include  "string_view.h"
 
 struct string_view_t username = {};
 
@@ -14,7 +16,20 @@ static int dripbox_upload(struct socket_t *s, char *file_path);
 
 static int dripbox_download(struct socket_t *s, char *file_path);
 
+void* client_rotine();
+
 int client_main() {
+    pthread_t inotify_watcher_thread_id, common_client_thread_id;
+    printf("test2");
+    pthread_create(&inotify_watcher_thread_id, NULL, (void *) inotify_watcher_loop, NULL);
+    pthread_create(&common_client_thread_id, NULL, (void *) client_rotine, NULL);
+    while(1){
+        sleep(1);
+    }
+    return 0;
+}
+
+void* client_rotine(){
     var server_endpoint = ipv4_endpoint_new(ip, port);
     var s = socket_new(AF_INET);
     if (!tcp_client_connect(&s, &server_endpoint)) {
@@ -31,7 +46,7 @@ int client_main() {
     if (stat(sync_dir_path.data, &dir_stat) < 0) {
         mkdir(sync_dir_path.data, S_IRWXU | S_IRWXG | S_IRWXO);
     }
-
+    
     static char buffer[1 << 20] = {};
     static const struct string_view_t cmd_upload = (struct string_view_t){
         .data = "upload",
@@ -69,9 +84,7 @@ int client_main() {
     }
 
     close(s.sock_fd);
-    return 0;
 }
-
 
 int dripbox_login(struct socket_t *s, const struct string_view_t username) {
     if (s->error != 0) { return -1; }
