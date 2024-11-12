@@ -8,6 +8,11 @@
 #   define INOTIFY_COMMON_API static inline
 #endif
 
+
+#define EVENT_SIZE (sizeof (struct inotify_event))
+
+#define EVENT_BUFFER_LEN (1024 * (EVENT_SIZE + 16))
+
 struct inotify_watcher_t {
     int inotify_fd;
     int watcher_fd;
@@ -16,15 +21,16 @@ struct inotify_watcher_t {
     int inotify_event_return;
 };
 
+struct inotify_event_t {
+    char event_buffer[EVENT_BUFFER_LEN];
+    int buffer_len;
+};
+
 INOTIFY_COMMON_API struct inotify_watcher_t inotify_watcher_new(int inotify_initial_fd);
 
 INOTIFY_COMMON_API struct inotify_watcher_t init_inotify(int inotify_initial_fd, char dir[]);
 
-INOTIFY_COMMON_API void read_event(struct inotify_watcher_t watcher);
-
-#define EVENT_SIZE (sizeof (struct inotify_event))
-
-#define EVENT_BUFFER_LEN (1024 * (EVENT_SIZE + 16))
+INOTIFY_COMMON_API struct inotify_event_t read_event(struct inotify_watcher_t watcher);
 
 struct inotify_watcher_t inotify_watcher_new(int inotify_initial_fd) {
     const struct inotify_watcher_t watcher_inst = {
@@ -67,86 +73,17 @@ struct inotify_watcher_t init_inotify(int inotify_initial_fd, char dir[]){
     return watcher_inst;
 }
 
-void read_event(struct inotify_watcher_t watcher){
+struct inotify_event_t read_event(struct inotify_watcher_t watcher){
 
-    char buf[EVENT_BUFFER_LEN];
-    int len, i = 0;
+    struct inotify_event_t inotify_event;
 
-    len = read (watcher.inotify_fd, buf, EVENT_BUFFER_LEN);
-    if (len < 0) {
+    inotify_event.buffer_len = read (watcher.inotify_fd, inotify_event.event_buffer, EVENT_BUFFER_LEN);
+    if (inotify_event.buffer_len < 0) {
         log(LOG_ERROR, "Read Inotify watcher event: %s\n", strerror(errno));
-    } else if (!len)
+    } else if (!(inotify_event.buffer_len)) {
         printf("event buffet too small apparently");
-
-    while (i < len) {
-        struct inotify_event *event;
-
-        event = (struct inotify_event *) &buf[i];
-
-        printf ("wd=%d mask=%u cookie=%u len=%u\n",
-            event->wd, event->mask,
-            event->cookie, event->len);
-
-        if (event->len)
-            printf ("name=%s\n", event->name);
-
-        if(event->mask >= IN_ISDIR){
-            printf("dir action\n");
-            event->mask %=IN_ISDIR;
-        }
-
-        switch(event->mask){
-            case IN_MODIFY: printf("IN_MODIFY\n");
-            break;
-            case IN_ATTRIB: printf("IN_ATTRIB\n");
-            break;
-            case IN_MOVED_TO: printf("IN_MOVED_TO\n");
-            break;
-            case IN_MOVED_FROM: printf("IN_MOVED_FROM\n");
-            break;
-            case IN_DELETE: printf("IN_DELETE\n");
-            break;
-            case IN_DELETE_SELF: printf("IN_DELETE_SELF\n");
-            break;
-            default: printf("OTHER\n");
-        }
-        i += EVENT_SIZE + event->len;
     }
+    return inotify_event;
 }
-
-int select_inotify_event(struct inotify_watcher_t watcher) {
-    watcher.inotify_event_return = select(watcher.inotify_fd + 1, &watcher.read_fds, NULL, NULL, &watcher.timeout_timer);
-    if (watcher.inotify_event_return < 0) {
-        log(LOG_ERROR, "Inotify event select: %s\n", strerror(errno));
-        return -1;
-    }
-    else if(!watcher.inotify_event_return) {
-        printf("idk what happens test lol");
-    }
-    else if (FD_ISSET (watcher.inotify_fd, &watcher.read_fds)) {
-        read_event(watcher);
-    }
-
-    return 0;
-}
-
-void* inotify_watcher_loop(){
-    struct inotify_watcher_t watcher = init_inotify(-1, "./sync_dir");
-
-    while(1){
-        read_event(watcher);
-    }
-    
-    int ret_value = inotify_rm_watch (watcher.inotify_fd, watcher.watcher_fd);
-    if (ret_value)
-        log(LOG_ERROR, "Inotify watch remove: %s\n", strerror(errno));
-        return -1;
-    
-    return 0;
-}
-
-
-
-
 
 #endif //INOTIFY_COMMON_H

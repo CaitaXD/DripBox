@@ -18,6 +18,10 @@ static int dripbox_download(struct socket_t *s, char *file_path);
 
 void* client_rotine();
 
+void run_inotify_event(struct inotify_event_t inotify_event);
+
+void* inotify_watcher_loop();
+
 int client_main() {
     pthread_t inotify_watcher_thread_id, common_client_thread_id;
     printf("test2");
@@ -234,4 +238,60 @@ int dripbox_download(struct socket_t *s, char *file_path) {
     }
 
     return got;
+}
+
+void run_inotify_event(struct inotify_event_t inotify_event){
+    int i = 0;
+    while (i < inotify_event.buffer_len) {
+        struct inotify_event *event;
+
+        event = (struct inotify_event *) &(inotify_event.event_buffer[i]);
+
+        printf ("wd=%d mask=%u cookie=%u len=%u\n",
+            event->wd, event->mask,
+            event->cookie, event->len);
+
+        if (event->len)
+            printf ("name=%s\n", event->name);
+
+        // dir action (any action)
+        if(event->mask >= IN_ISDIR){
+            printf("dir action\n");
+            event->mask %=IN_ISDIR;
+        }
+
+        switch(event->mask){
+            case IN_MODIFY: printf("IN_MODIFY\n");
+            break;
+            case IN_ATTRIB: printf("IN_ATTRIB\n");
+            break;
+            case IN_MOVED_TO: printf("IN_MOVED_TO\n");
+            break;
+            case IN_MOVED_FROM: printf("IN_MOVED_FROM\n");
+            break;
+            case IN_DELETE: printf("IN_DELETE\n");
+            break;
+            case IN_DELETE_SELF: printf("IN_DELETE_SELF\n");
+            break;
+            default: printf("OTHER\n");
+        }
+        i += EVENT_SIZE + event->len;
+    }
+}
+
+void* inotify_watcher_loop(){
+    struct inotify_watcher_t watcher = init_inotify(-1, "./sync_dir");
+    struct inotify_event_t inotify_event;
+
+    while(1){
+        inotify_event = read_event(watcher);
+        run_inotify_event(inotify_event);
+    }
+    
+    int ret_value = inotify_rm_watch (watcher.inotify_fd, watcher.watcher_fd);
+    if (ret_value)
+        log(LOG_ERROR, "Inotify watch remove: %s\n", strerror(errno));
+        return -1;
+    
+    return 0;
 }
