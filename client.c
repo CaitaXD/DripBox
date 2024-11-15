@@ -16,31 +16,14 @@ static int dripbox_upload(struct socket_t *s, char *file_path);
 
 static int dripbox_download(struct socket_t *s, char *file_path);
 
-void* client_rotine();
+void* client_rotine(const void* args);
 
 void run_inotify_event(struct inotify_event_t inotify_event);
 
-void* inotify_watcher_loop();
+void* inotify_watcher_loop(const void* args);
 
 int client_main() {
     pthread_t inotify_watcher_thread_id, common_client_thread_id;
-    printf("test2");
-    pthread_create(&inotify_watcher_thread_id, NULL, (void *) inotify_watcher_loop, NULL);
-    pthread_create(&common_client_thread_id, NULL, (void *) client_rotine, NULL);
-    while(1){
-        sleep(1);
-    }
-    return 0;
-}
-
-void* client_rotine(){
-    var server_endpoint = ipv4_endpoint_new(ip, port);
-    var s = socket_new(AF_INET);
-    if (!tcp_client_connect(&s, &server_endpoint)) {
-        log(LOG_ERROR, "%s", strerror(s.error));
-        return -1;
-    }
-    dripbox_login(&s, username);
 
     const struct string_view_t sync_dir_path = (struct string_view_t){
         .data = "./sync_dir/",
@@ -50,6 +33,30 @@ void* client_rotine(){
     if (stat(sync_dir_path.data, &dir_stat) < 0) {
         mkdir(sync_dir_path.data, S_IRWXU | S_IRWXG | S_IRWXO);
     }
+
+    var server_endpoint = ipv4_endpoint_new(ip, port);
+    var s = socket_new(AF_INET);
+    if (!tcp_client_connect(&s, &server_endpoint)) {
+        log(LOG_ERROR, "%s", strerror(s.error));
+        return -1;
+    }
+    dripbox_login(&s, username);
+
+    pthread_create(&inotify_watcher_thread_id, NULL, (void *) inotify_watcher_loop, &s);
+    pthread_create(&common_client_thread_id, NULL, (void *) client_rotine, &s);
+    while(1){
+        sleep(1);
+    }
+    return 0;
+}
+
+void* client_rotine(const void* args){
+    struct socket_t *s = (struct socket_t *)args;
+    
+    const struct string_view_t sync_dir_path = (struct string_view_t){
+        .data = "./sync_dir/",
+        .length = sizeof "./sync_dir/" - 1,
+    };
     
     static char buffer[1 << 20] = {};
     static const struct string_view_t cmd_upload = (struct string_view_t){
@@ -63,7 +70,7 @@ void* client_rotine(){
 
     bool quit = false;
     while (!quit) {
-        s.error = 0;
+        s->error = 0;
         const struct string_view_t cmd = sv_from_cstr(fgets(buffer, sizeof buffer, stdin));
         if (cmd.length == 0) {
             continue;
@@ -75,7 +82,7 @@ void* client_rotine(){
             if (file_path.data[file_path.length - 1] == '\n') {
                 file_path.data[file_path.length - 1] = 0;
             }
-            dripbox_upload(&s, file_path.data);
+            dripbox_upload(s, file_path.data);
         } else if (strncmp(cmd.data, cmd_download.data, cmd_download.length) == 0) {
             const var parts = sv_token(cmd, sv_from_cstr(" "));
             const struct string_view_t file_path = parts.data[1];
@@ -83,11 +90,11 @@ void* client_rotine(){
                 file_path.data[file_path.length - 1] = 0;
             }
 
-            dripbox_download(&s, path_combine(tls_dripbox_path_buffer, sync_dir_path.data, file_path.data));
+            dripbox_download(s, path_combine(tls_dripbox_path_buffer, sync_dir_path.data, file_path.data));
         }
     }
 
-    close(s.sock_fd);
+    close(s->sock_fd);
 }
 
 int dripbox_login(struct socket_t *s, const struct string_view_t username) {
@@ -279,7 +286,9 @@ void run_inotify_event(struct inotify_event_t inotify_event){
     }
 }
 
-void* inotify_watcher_loop(){
+void* inotify_watcher_loop(const void* args){
+    struct socket_t *s = (struct socket_t *)args;
+
     struct inotify_watcher_t watcher = init_inotify(-1, "./sync_dir");
     struct inotify_event_t inotify_event;
 
