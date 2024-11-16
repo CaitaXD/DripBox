@@ -24,6 +24,7 @@ struct inotify_watcher_t {
 struct inotify_event_t {
     char event_buffer[EVENT_BUFFER_LEN];
     int buffer_len;
+    int error;
 };
 
 INOTIFY_COMMON_API struct inotify_watcher_t inotify_watcher_new(int inotify_initial_fd);
@@ -46,41 +47,43 @@ struct inotify_watcher_t inotify_watcher_new(int inotify_initial_fd) {
     return watcher_inst;
 }
 
-struct inotify_watcher_t init_inotify(int inotify_initial_fd, char dir[]){
-
+struct inotify_watcher_t init_inotify(int inotify_initial_fd, char dir[]) {
     struct inotify_watcher_t watcher_inst = inotify_watcher_new(inotify_initial_fd);
 
-    if(watcher_inst.inotify_fd < 0){
+    if (watcher_inst.inotify_fd < 0) {
         watcher_inst.inotify_fd = inotify_init();
-        if(watcher_inst.inotify_fd < 0) {
+        if (watcher_inst.inotify_fd < 0) {
             log(LOG_ERROR, "Inotify init: %s\n", strerror(errno));
             return watcher_inst;
         }
     }
 
-    int test = inotify_add_watch(watcher_inst.inotify_fd, dir, IN_MOVE | IN_MODIFY | IN_ATTRIB | IN_DELETE | IN_DELETE_SELF); // 
-    if(test < 0){
+    int test = inotify_add_watch(watcher_inst.inotify_fd, dir,
+                                 IN_MOVE | IN_MODIFY | IN_ATTRIB | IN_DELETE | IN_DELETE_SELF); //
+    if (test < 0) {
         printf("erro");
         log(LOG_ERROR, "Inotify watch add: %s\n", strerror(errno));
         return watcher_inst;
     }
     watcher_inst.watcher_fd = test;
-        
-    FD_ZERO (&watcher_inst.read_fds);
 
-    FD_SET (watcher_inst.inotify_fd, &watcher_inst.read_fds);
+    FD_ZERO(&watcher_inst.read_fds);
+
+    FD_SET(watcher_inst.inotify_fd, &watcher_inst.read_fds);
 
     return watcher_inst;
 }
 
-struct inotify_event_t read_event(struct inotify_watcher_t watcher){
+struct inotify_event_t read_event(struct inotify_watcher_t watcher) {
+    struct inotify_event_t inotify_event = {};
 
-    struct inotify_event_t inotify_event;
-
-    inotify_event.buffer_len = read (watcher.inotify_fd, inotify_event.event_buffer, EVENT_BUFFER_LEN);
+    inotify_event.buffer_len = read(watcher.inotify_fd, inotify_event.event_buffer, EVENT_BUFFER_LEN);
     if (inotify_event.buffer_len < 0) {
+        inotify_event.error = errno;
+        if (inotify_event.error == EAGAIN) { return inotify_event; }
+
         log(LOG_ERROR, "Read Inotify watcher event: %s\n", strerror(errno));
-    } else if (!(inotify_event.buffer_len)) {
+    } else if (!inotify_event.buffer_len) {
         printf("event buffet too small apparently");
     }
     return inotify_event;

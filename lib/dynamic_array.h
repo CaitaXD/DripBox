@@ -84,8 +84,10 @@ struct dynamic_array_header_t {
 static struct dynamic_array_header_t *_dynamic_array_with_capacity_impl(
     const size_t element_size, const size_t capacity,
     struct allocator_t *allocator) {
-    struct dynamic_array_header_t *buffer = alloc(
-        allocator, sizeof(struct dynamic_array_header_t) + element_size * capacity);
+    struct dynamic_array_header_t *buffer = allocator_alloc(
+        allocator,
+        sizeof(struct dynamic_array_header_t) + element_size * capacity
+    );
     if (buffer == NULL) return NULL;
     buffer->capacity = capacity;
     buffer->allocator = allocator;
@@ -109,7 +111,7 @@ static void _dynamic_array_reserve_impl(struct dynamic_array_header_t **buffer, 
         assert(new_buffer != NULL && "Allocation failed, Buy more RAM");
         new_buffer->length = (*buffer)->length;
         memcpy(new_buffer->data, (*buffer)->data, element_size * (*buffer)->length);
-        dealloc(buffer_->allocator, *buffer);
+        allocator_dealloc(buffer_->allocator, *buffer);
         *buffer = new_buffer;
     }
 }

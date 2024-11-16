@@ -82,15 +82,21 @@ void print_network_info(void) {
 }
 
 int main(const int argc, char *argv[argc]) {
+
+    for (int i = 0; i < argc; i++) {
+        printf("%s ", argv[i]);
+    }
+    printf("\n");
+
     switch (parse_commandline(argc, argv)) {
     case USAGE_COMMAND:
         printf("%s", USAGE_MSG);
         return 0;
     case SUCCESS:
         printf("Starting DripBox %s\n", mode);
-        print_network_info();
         printf("IP: %s\n", inet_ntoa(*(struct in_addr *) &ip));
         printf("Port: %d\n", port);
+        print_network_info();
         if (mode_type == MODE_CLIENT) {
             return client_main();
         }

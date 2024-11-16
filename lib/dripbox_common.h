@@ -9,7 +9,8 @@ enum msg_type {\
     MSG_LOGIN = 1,
     MSG_UPLOAD = 2,
     MSG_DOWNLOAD = 3,
-    MSG_ERROR = 4,
+    MSG_DELETE = 4,
+    MSG_ERROR = 5,
 };
 
 enum { DRIPBOX_MAX_HEADER_SIZE = 4096 };
@@ -29,6 +30,10 @@ struct dripbox_upload_header_t {
 } __attribute__((packed));
 
 struct dripbox_download_header_t {
+    size_t file_name_length;
+} __attribute__((packed));
+
+struct dripbox_delete_header_t {
     size_t file_name_length;
 } __attribute__((packed));
 
@@ -85,6 +90,9 @@ static const char *msg_type_cstr(const enum msg_type msg_type) {
         break;
     case MSG_NOOP:
         str = "NOOP";
+        break;
+    case MSG_DELETE:
+        str = "Delete";
         break;
     default:
         str = "INVALID MESSAGE";

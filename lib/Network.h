@@ -58,13 +58,14 @@ NETWORK_API const char *socket_address_to_cstr(const struct socket_address_t *ad
 NETWORK_API bool tcp_server_incoming_next(const struct tcp_listener_t *listener, struct socket_t *client,
                                           struct socket_address_t *addr);
 
-NETWORK_API struct socket_t socket_new(int domain);
+NETWORK_API struct socket_t socket_new(int domain, int type, int protocol);
 
 NETWORK_API bool socket_pending(const struct socket_t *socket, int timeout);
 
 NETWORK_API bool poll_next(size_t len, const struct pollfd fds[static len], int events);
 
-NETWORK_API ssize_t socket_read_exactly(struct socket_t *socket, size_t length, uint8_t buffer[static length]);
+NETWORK_API ssize_t socket_read_exactly(struct socket_t *socket, size_t length, uint8_t buffer[static length],
+                                        int flags);
 
 NETWORK_API ssize_t socket_read(struct socket_t *socket, size_t length, uint8_t buffer[static length], int flags);
 
@@ -173,11 +174,11 @@ bool tcp_listener_close(struct tcp_listener_t *listener) {
     return true;
 }
 
-struct socket_t socket_new(const int domain) {
+struct socket_t socket_new(const int domain, const int type, const int protocol) {
     struct socket_t client = {
         .sock_fd = -1,
     };
-    client.sock_fd = socket(domain, SOCK_STREAM, IPPROTO_TCP);
+    client.sock_fd = socket(domain, type, protocol);
     if (client.sock_fd < 0) {
         client.error = errno;
         return client;
@@ -240,10 +241,11 @@ bool poll_next(const size_t len, const struct pollfd fds[], const int events) {
     return false;
 }
 
-ssize_t socket_read_exactly(struct socket_t *socket, const size_t length, uint8_t buffer[static length]) {
+ssize_t socket_read_exactly(struct socket_t *socket, const size_t length, uint8_t buffer[static length],
+                            const int flags) {
     ptrdiff_t left_to_read = length;
     while (left_to_read > 0) {
-        const ssize_t recvd = recv(socket->sock_fd, buffer, left_to_read, 0);
+        const ssize_t recvd = recv(socket->sock_fd, buffer, left_to_read, flags);
         if (recvd == 0) {
             return 0;
         }
@@ -257,7 +259,7 @@ ssize_t socket_read_exactly(struct socket_t *socket, const size_t length, uint8_
     return length;
 }
 
-ssize_t socket_read(struct socket_t *socket, const size_t length, uint8_t buffer[static length], int flags) {
+ssize_t socket_read(struct socket_t *socket, const size_t length, uint8_t buffer[static length], const int flags) {
     if (socket->error != 0) { return -1; }
     if (recv(socket->sock_fd, buffer, length, flags) < 0) {
         socket->error = errno;
