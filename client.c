@@ -12,6 +12,7 @@
 #include  "string_view.h"
 
 struct string_view_t username = {};
+bool quit = false;
 
 static int dripbox_login(struct socket_t *s, struct string_view_t username);
 
@@ -48,9 +49,9 @@ int client_main() {
 
     pthread_create(&inotify_watcher_thread_id, NULL, (void *) inotify_watcher_loop, &s);
     pthread_create(&common_client_thread_id, NULL, (void *) client_rotine, &s);
-    while (1) {
-        sleep(1);
-    }
+    
+    pthread_join(inotify_watcher_thread_id, NULL);
+    pthread_join(common_client_thread_id, NULL);
     return 0;
 }
 
@@ -75,8 +76,15 @@ void *client_rotine(const void *args) {
         .data = "list_client",
         .length = sizeof "list_client" - 1,
     };
+    static const struct string_view_t cmd_list_server = (struct string_view_t){
+        .data = "list_server",
+        .length = sizeof "list_server" - 1,
+    };
+    static const struct string_view_t cmd_exit = (struct string_view_t){
+        .data = "exit",
+        .length = sizeof "exit" - 1,
+    };
 
-    bool quit = false;
     while (!quit) {
         s->error = 0;
         const struct string_view_t cmd = sv_cstr(fgets(buffer, sizeof buffer, stdin));
@@ -101,6 +109,11 @@ void *client_rotine(const void *args) {
             dripbox_download(s, path_combine(sync_dir_path, file_path).data);
         } else if (strncmp(cmd.data, cmd_list_client.data, cmd_list_client.length) == 0) {
             dripbox_list_client(sync_dir_path);
+        } else if (strncmp(cmd.data, cmd_list_server.data, cmd_list_server.length) == 0) {
+            printf("list_server not implemented\n\n");
+            log(LOG_ERROR, "%s\n", "NOT IMPLEMENTED");
+        } else if (strncmp(cmd.data, cmd_exit.data, cmd_exit.length) == 0) {
+            quit = true;
         }
     }
 
@@ -320,9 +333,9 @@ void dripbox_list_client(const struct string_view_t sync_dir_path) {
             struct tm *tm_mtime = localtime(&statbuf.st_mtime);
 
             printf("NAME: %s \n", namelist[n]->d_name);
-            printf("CTIME: %d/%d/%d %d:%d.%d\n", tm_ctime->tm_year + 1900, tm_ctime->tm_mon + 1, tm_ctime->tm_mday, tm_ctime->tm_hour, tm_ctime->tm_min, tm_ctime->tm_sec);
-            printf("ATIME: %d/%d/%d %d:%d.%d\n", tm_atime->tm_year + 1900, tm_atime->tm_mon + 1, tm_atime->tm_mday, tm_atime->tm_hour, tm_atime->tm_min, tm_atime->tm_sec);
-            printf("MTIME: %d/%d/%d %d:%d.%d\n", tm_mtime->tm_year + 1900, tm_mtime->tm_mon + 1, tm_mtime->tm_mday, tm_mtime->tm_hour, tm_mtime->tm_min, tm_mtime->tm_sec);
+            printf("CTIME: %d/%2d/%2d %2d:%2d.%2d\n", tm_ctime->tm_year + 1900, tm_ctime->tm_mon + 1, tm_ctime->tm_mday, tm_ctime->tm_hour, tm_ctime->tm_min, tm_ctime->tm_sec);
+            printf("ATIME: %d/%2d/%2d %2d:%2d.%2d\n", tm_atime->tm_year + 1900, tm_atime->tm_mon + 1, tm_atime->tm_mday, tm_atime->tm_hour, tm_atime->tm_min, tm_atime->tm_sec);
+            printf("MTIME: %d/%2d/%2d %2d:%2d.%2d\n", tm_mtime->tm_year + 1900, tm_mtime->tm_mon + 1, tm_mtime->tm_mday, tm_mtime->tm_hour, tm_mtime->tm_min, tm_mtime->tm_sec);
             printf("\n");
         }   
        
@@ -379,7 +392,7 @@ void *inotify_watcher_loop(const void *args) {
 
     const struct inotify_watcher_t watcher = init_inotify(-1, "./sync_dir");
     //fcntl(watcher.inotify_fd, F_SETFL, O_NONBLOCK);
-    while (true) {
+    while (quit) {
         const struct inotify_event_t inotify_event = read_event(watcher);
         if (inotify_event.error == EAGAIN) { continue; }
         run_inotify_event(s, inotify_event);
