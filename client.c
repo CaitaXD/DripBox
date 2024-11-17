@@ -348,7 +348,7 @@ void run_inotify_event(struct socket_t *s, struct inotify_event_t inotify_event)
             event->mask %= IN_ISDIR;
         }
 
-        const struct z_string_t fullpath = path_combine(sv_cstr("sync_dir"), sv_cstr((char*)event->name));
+        const struct z_string_t fullpath = path_combine("sync_dir", (char*)event->name);
 
         switch (event->mask) {
         case IN_MODIFY: printf("File modified or created %s\n", event->name);

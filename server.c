@@ -112,7 +112,7 @@ static void dripbox_handle_login(user_table_t *hash_table, struct socket_t clien
     const char *ip = socket_address_to_cstr(client.addr, a);
     hash_table_update(hash_table, ip, _user);
 
-    const struct z_string_t path = path_combine(sv_z(g_userdata_dir), username);
+    const struct z_string_t path = path_combine(g_userdata_dir, username);
     struct stat st = {};
     if (stat(g_userdata_dir.data, &st) < 0) {
         mkdir(g_userdata_dir.data, S_IRWXU | S_IRWXG | S_IRWXO);
@@ -227,7 +227,7 @@ void dripbox_handle_delete(const struct user_t user, struct socket_t client, uin
     );
 
     const struct string_view_t username = user.username;
-    const struct z_string_t path = path_combine(sv_z(g_userdata_dir), username, file_name);
+    const struct z_string_t path = path_combine(g_userdata_dir, username, file_name);
 
     struct stat st = {};
     if (stat(path.data, &st) < 0) {
