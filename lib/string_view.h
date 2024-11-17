@@ -151,38 +151,43 @@ static struct z_string_t z_sv(const struct string_view_t sv, const struct alloca
     };
 }
 
-#define MATCH_AND_CAST_PTR(type__, ptr__) type__*: *((type__*)(ptr__))
+#define MATCH_PTR_CAST_RETURN(type__, ptr__) \
+    type__*: *((type__*)(ptr__)), \
+    type__ *const: *((type__ *const)(ptr__)), \
+    const type__*: *((const type__*)(ptr__)), \
+    const type__ *const: *((const type__ *const)(ptr__))
 
-#define SV(s__) ((struct string_view_t [1]) \
+#define MATCH_PTR(type__, do__) \
+    type__*: (do__), \
+    type__ *const: (do__), \
+    const type__*: (do__), \
+    const type__ *const: (do__)
+
+#define SV(str__) ((struct string_view_t [1]) \
 { \
     ({\
-        var __sptr = &(s__);\
-        void* __addr = *(void**)__sptr;\
-        void** __addrptr = (void**)__sptr;\
-        _Generic(__sptr, \
-            /* z string */\
-            MATCH_AND_CAST_PTR(struct z_string_t, __sptr), MATCH_AND_CAST_PTR(const struct z_string_t, __sptr), \
-            MATCH_AND_CAST_PTR(struct z_string_t*, __sptr), MATCH_AND_CAST_PTR(const struct z_string_t*, __sptr), \
-            /* string view */\
-            MATCH_AND_CAST_PTR(struct string_view_t, __sptr), MATCH_AND_CAST_PTR(const struct string_view_t, __sptr), \
-            MATCH_AND_CAST_PTR(struct string_view_t*, __sptr), MATCH_AND_CAST_PTR(const struct string_view_t*, __sptr), \
-            /* default */\
-            default: sv_cstr((__addr == *__addrptr) ? (char*)__sptr : *(char**)__sptr) \
+        var __str = (str__);\
+        var __ptr = &__str;\
+        _Generic(__ptr, \
+            MATCH_PTR_CAST_RETURN(struct string_view_t, __ptr),\
+            MATCH_PTR(struct z_string_t, sv_z(*(struct z_string_t *)__ptr)),\
+            MATCH_PTR(char*, sv_cstr(*(char**)__ptr)),\
+            char (*)[sizeof(*__ptr)]: sv_cstr((char*)__ptr) \
         );\
     })\
 }[0])
 
-#define path_combine(allocator__, ...) ({\
-    const struct allocator_t *__a = (allocator__);\
-    const struct string_view_t __sv_args[] = {__VA_ARGS__};\
+#define path_combine(...) ({\
+    const struct string_view_t __sv_args[] = { MAP(SV, __VA_ARGS__) };\
     const size_t __len = sizeof __sv_args / sizeof __sv_args[0];\
     size_t __total_len = 0;\
     for (size_t i = 0; i < __len; i++) {\
         __total_len += __sv_args[i].length + 1;\
     }\
     __total_len = min(__total_len, PATH_MAX);\
+    static char __path_buffer[PATH_MAX] = {};\
     struct string_view_t __acc = (struct string_view_t){\
-        .data = (allocator_alloc(__a, __total_len)),\
+        .data = __path_buffer,\
         .length = 0,\
     };\
     for (size_t i = 0; i < __len; i++) {\

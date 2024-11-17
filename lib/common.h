@@ -154,4 +154,19 @@ static bool string_equals(const void *a, const void *b) {
 
 #define size_and_address(struct__) sizeof(struct__), (uint8_t*)&(struct__)
 
+#define MAP0(fn, dummy)
+#define MAP1(fn, a) fn(a)
+#define MAP2(fn, a, b) fn(a), fn(b)
+#define MAP3(fn, a, b, c) fn(a), fn(b), fn(c)
+#define MAP4(fn, a, b, c, d) fn(a), fn(b), fn(c), fn(d)
+#define MAP5(fn, a, b, c, d, e) fn(a), fn(b), fn(c), fn(d), fn(e)
+#define MAP6(fn, a, b, c, d, e, f) fn(a), fn(b), fn(c), fn(d), fn(e) ,fn(f)
+
+#define ARGS_COUNT_(dummy, x6, x5, x4, x3, x2, x1, x0, ...) x0
+#define ARGS_COUNT(...) ARGS_COUNT_(dummy, ##__VA_ARGS__, 6, 5, 4, 3, 2, 1, 0)
+
+#define MAP__(fn, n, ...) MAP##n(fn, __VA_ARGS__)
+#define MAP_(fn, n, ...) MAP__(fn, n, __VA_ARGS__)
+#define MAP(fn, ...) MAP_(fn, ARGS_COUNT(__VA_ARGS__), __VA_ARGS__)
+
 #endif //COMMON_H

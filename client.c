@@ -98,7 +98,7 @@ void *client_rotine(const void *args) {
                 file_path.data[file_path.length - 1] = 0;
             }
 
-            dripbox_download(s, path_combine(&default_allocator, sync_dir_path, file_path).data);
+            dripbox_download(s, path_combine(sync_dir_path, file_path).data);
         } else if (strncmp(cmd.data, cmd_list_client.data, cmd_list_client.length) == 0) {
             dripbox_list_client(sync_dir_path);
         }
@@ -311,7 +311,7 @@ void dripbox_list_client(const struct string_view_t sync_dir_path) {
             .length = sizeof namelist[n]->d_name - 1,
         };
         // referencia do stat pro relatorio: https://pubs.opengroup.org/onlinepubs/009695399/functions/stat.html
-        int status = stat(path_combine(&default_allocator, sync_dir_path, file_path).data, &statbuf);
+        int status = stat(path_combine(sync_dir_path, file_path).data, &statbuf);
 
 
         if(!status) {
@@ -348,7 +348,7 @@ void run_inotify_event(struct socket_t *s, struct inotify_event_t inotify_event)
             event->mask %= IN_ISDIR;
         }
 
-        const struct z_string_t fullpath = path_combine(&default_allocator, SV("sync_dir"), SV(event->name));
+        const struct z_string_t fullpath = path_combine(sv_cstr("sync_dir"), sv_cstr((char*)event->name));
 
         switch (event->mask) {
         case IN_MODIFY: printf("File modified or created %s\n", event->name);
