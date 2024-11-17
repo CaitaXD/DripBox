@@ -8,6 +8,7 @@
 #include <sys/sendfile.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <time.h>
 #include  "string_view.h"
 
 struct string_view_t username = {};
@@ -298,14 +299,35 @@ void dripbox_list_client(const struct string_view_t sync_dir_path) {
             return 1;
         }
     }
-
+    // referencia do scandir pro relatorio dps: https://lloydrochester.com/post/c/list-directory/
     n = scandir(sync_dir_path.data, &namelist, filter, alphasort);
 
+    struct stat statbuf;
+
+    printf("\n\n*****LOCAL CLIENT\'S FILES:*****\n\n");
     while(n--) {
-        printf("NAME: %s RECORD LENGTH: %d \n", namelist[n]->d_name, namelist[n]->d_type);
+        struct string_view_t file_path = (struct string_view_t){
+            .data = namelist[n]->d_name,
+            .length = sizeof namelist[n]->d_name - 1,
+        };
+        // referencia do stat pro relatorio: https://pubs.opengroup.org/onlinepubs/009695399/functions/stat.html
+        int status = stat(path_combine(&default_allocator, sync_dir_path, file_path).data, &statbuf);
+
+
+        if(!status) {
+            struct tm *tm_ctime = localtime(&statbuf.st_ctime);
+            struct tm *tm_atime = localtime(&statbuf.st_atime);
+            struct tm *tm_mtime = localtime(&statbuf.st_mtime);
+
+            printf("NAME: %s \n", namelist[n]->d_name);
+            printf("CTIME: %d/%d/%d %d:%d.%d\n", tm_ctime->tm_year + 1900, tm_ctime->tm_mon + 1, tm_ctime->tm_mday, tm_ctime->tm_hour, tm_ctime->tm_min, tm_ctime->tm_sec);
+            printf("ATIME: %d/%d/%d %d:%d.%d\n", tm_atime->tm_year + 1900, tm_atime->tm_mon + 1, tm_atime->tm_mday, tm_atime->tm_hour, tm_atime->tm_min, tm_atime->tm_sec);
+            printf("MTIME: %d/%d/%d %d:%d.%d\n", tm_mtime->tm_year + 1900, tm_mtime->tm_mon + 1, tm_mtime->tm_mday, tm_mtime->tm_hour, tm_mtime->tm_min, tm_mtime->tm_sec);
+            printf("\n");
+        }   
+       
     }
-    //struct stat statbuf;
-    //stat(sync_dir_path)
+    printf("*******************************\n\n");
 }
 
 void run_inotify_event(struct socket_t *s, struct inotify_event_t inotify_event) {
