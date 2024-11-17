@@ -37,24 +37,65 @@ struct socket_t {
     struct socket_address_t *addr;
 };
 
+/// Creates a new tcp listener
+/// @param domain The domain to use
+/// @return The new tcp listener
 NETWORK_API struct tcp_listener_t tcp_listener_new(int domain);
 
+/// Binds the tcp listener to the given address
+/// @remark If error != 0, early returns false
+/// @param listener The tcp listener to bind
+/// @param addr The address to bind to
+/// @return True if the bind was successful, false otherwise
 NETWORK_API bool tcp_listener_bind(struct tcp_listener_t *listener, struct socket_address_t *addr);
 
+/// Listens for incoming connections on the tcp listener
+/// @remark If error != 0, early returns false
+/// @param listener The tcp listener to listen on
+/// @param backlog Maximum number of pending connections
+/// @return True if the listen was successful, false otherwise
 NETWORK_API bool tcp_listener_listen(struct tcp_listener_t *listener, int backlog);
 
+/// Closes the tcp listener
+/// @remark If error != 0, early returns false
+/// @remark fd is set to -1 if the closed successfully
+/// @param listener The tcp listener to close
+/// @return True if closed successfully, false otherwise
 NETWORK_API bool tcp_listener_close(struct tcp_listener_t *listener);
 
+/// Accepts a connection on the tcp listener
+/// @remark If error != 0, early returns false
+/// @param listener The tcp listener to accept on
+/// @param addr The address of the client
+/// @return The accepted socket
 NETWORK_API struct socket_t tcp_listener_accept(const struct tcp_listener_t *listener,
                                                 struct socket_address_t *addr);
 
-
+/// Connects to a remote address
+/// @remark If error != 0, early returns false
+/// @param client The socket to connect
+/// @param addr The address to connect to
+/// @return True if the connection was successful, false otherwise
 NETWORK_API bool tcp_client_connect(struct socket_t *client, struct socket_address_t *addr);
 
+/// Closes the socket
+/// @remark If error != 0, early returns false
+/// @remark fd is set to -1 if the closed successfully
+/// @param s The socket to close
+/// @return True if closed successfully, false otherwise
 NETWORK_API bool socket_close(struct socket_t *s);
 
+/// Converts a socket address to a string
+/// @param addr The address to convert
+/// @param a The allocator to use
+/// @return The string representation of the address
 NETWORK_API const char *socket_address_to_cstr(const struct socket_address_t *addr, const struct allocator_t *a);
 
+/// Waits for the next incoming connection on the tcp listener
+/// @param listener The tcp listener to accept on
+/// @param client The socket to accept the connection on
+/// @param addr The address of the client
+/// @return True if an incoming connection was made successfully, false otherwise
 NETWORK_API bool tcp_server_incoming_next(const struct tcp_listener_t *listener, struct socket_t *client,
                                           struct socket_address_t *addr);
 

@@ -169,4 +169,12 @@ static bool string_equals(const void *a, const void *b) {
 #define MAP_(fn, n, ...) MAP__(fn, n, __VA_ARGS__)
 #define MAP(fn, ...) MAP_(fn, ARGS_COUNT(__VA_ARGS__), __VA_ARGS__)
 
+struct iterator_t {
+    bool (*next)(struct iterator_t *iterator);
+
+    void *current;
+};
+
+#define clone(ptr__) (typeof(ptr__)) memcpy(alloca(sizeof *(ptr__)), ptr__, sizeof *(ptr__))
+
 #endif //COMMON_H

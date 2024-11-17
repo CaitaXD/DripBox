@@ -287,18 +287,18 @@ int dripbox_download(struct socket_t *s, char *file_path) {
 
     return got;
 }
-
+int filter(const struct dirent *name) {
+    if(name->d_type == DT_DIR) {
+        return 0;
+    } else {
+        return 1;
+    }
+}
 void dripbox_list_client(const struct string_view_t sync_dir_path) {
     struct dirent **namelist;
     int n;
 
-    int filter(const struct dirent *name) {
-        if(name->d_type == DT_DIR) {
-            return 0;
-        } else {
-            return 1;
-        }
-    }
+
     // referencia do scandir pro relatorio dps: https://lloydrochester.com/post/c/list-directory/
     n = scandir(sync_dir_path.data, &namelist, filter, alphasort);
 
@@ -306,13 +306,12 @@ void dripbox_list_client(const struct string_view_t sync_dir_path) {
 
     printf("\n\n*****LOCAL CLIENT\'S FILES:*****\n\n");
     while(n--) {
-        struct string_view_t file_path = (struct string_view_t){
+        const struct string_view_t file_path = (struct string_view_t){
             .data = namelist[n]->d_name,
-            .length = sizeof namelist[n]->d_name - 1,
+            .length = strlen(namelist[n]->d_name),
         };
         // referencia do stat pro relatorio: https://pubs.opengroup.org/onlinepubs/009695399/functions/stat.html
         int status = stat(path_combine(sync_dir_path, file_path).data, &statbuf);
-
 
         if(!status) {
             struct tm *tm_ctime = localtime(&statbuf.st_ctime);

@@ -102,10 +102,10 @@ static bool sv_split_next(struct string_view_t *sv, const struct string_view_t d
     return true;
 }
 
+static const char PATH_SEPARATOR = '/';
+
 static ssize_t _sv_path_combine_impl(struct string_view_t *dst,
                                      const struct string_view_t a, const struct string_view_t b) {
-    static const char PATH_SEPARATOR = '/';
-
     memcpy(dst->data, a.data, a.length);
     dst->length = a.length;
     if (a.length > 0 && a.data[a.length - 1] != PATH_SEPARATOR) {
@@ -194,10 +194,7 @@ static struct z_string_t z_sv(const struct string_view_t sv, const struct alloca
         _sv_path_combine_impl(&__acc, __acc, __sv_args[i]);\
     }\
     __acc.data[__acc.length] = 0;\
-    (struct z_string_t){\
-        .data = __acc.data,\
-        .length = __acc.length\
-    };\
+    (struct z_string_t){ .data = __acc.data, .length = __acc.length };\
 })
 
 
