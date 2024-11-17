@@ -282,12 +282,19 @@ ssize_t socket_read_file(struct socket_t *socket, FILE *file, const size_t lengh
     const int fd = fileno(file);
     if (fd < 0) { return 0; }
 
-    const ssize_t result = sendfile(socket->sock_fd, fd, NULL, lenght);
-    if (result < 0) {
-        socket->error = errno;
-        return -1;
+    ptrdiff_t left_to_read = lenght;
+    off_t offset = 0;
+    while (left_to_read > 0) {
+        fseek(file, offset, SEEK_SET);
+        const ssize_t result = sendfile(socket->sock_fd, fd, &offset, left_to_read);
+        if (result < 0) {
+            socket->error = errno;
+            return -1;
+        }
+        left_to_read -= result;
     }
-    return result;
+
+    return lenght;
 }
 
 #endif //NETWORK_H
