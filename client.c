@@ -6,6 +6,8 @@
 #include <dripbox_common.h>
 #include <inotify_common.h>
 #include <sys/sendfile.h>
+#include <sys/stat.h>
+#include <dirent.h>
 #include  "string_view.h"
 
 struct string_view_t username = {};
@@ -17,6 +19,8 @@ static int dripbox_upload(struct socket_t *s, char *file_path);
 static int dripbox_download(struct socket_t *s, char *file_path);
 
 static void *client_rotine(const void *args);
+
+void dripbox_list_client(const struct string_view_t sync_dir_path);
 
 void run_inotify_event(struct socket_t *s, struct inotify_event_t inotify_event);
 
@@ -66,6 +70,10 @@ void *client_rotine(const void *args) {
         .data = "download",
         .length = sizeof "download" - 1,
     };
+    static const struct string_view_t cmd_list_client = (struct string_view_t){
+        .data = "list_client",
+        .length = sizeof "list_client" - 1,
+    };
 
     bool quit = false;
     while (!quit) {
@@ -90,6 +98,8 @@ void *client_rotine(const void *args) {
             }
 
             dripbox_download(s, path_combine(&default_allocator, sync_dir_path, file_path).data);
+        } else if (strncmp(cmd.data, cmd_list_client.data, cmd_list_client.length) == 0) {
+            dripbox_list_client(sync_dir_path);
         }
     }
 
@@ -277,6 +287,27 @@ int dripbox_download(struct socket_t *s, char *file_path) {
     return got;
 }
 
+void dripbox_list_client(const struct string_view_t sync_dir_path) {
+    struct dirent **namelist;
+    int n;
+
+    int filter(const struct dirent *name) {
+        if(name->d_type == DT_DIR) {
+            return 0;
+        } else {
+            return 1;
+        }
+    }
+
+    n = scandir(sync_dir_path.data, &namelist, filter, alphasort);
+
+    while(n--) {
+        printf("NAME: %s RECORD LENGTH: %d \n", namelist[n]->d_name, namelist[n]->d_type);
+    }
+    //struct stat statbuf;
+    //stat(sync_dir_path)
+}
+
 void run_inotify_event(struct socket_t *s, struct inotify_event_t inotify_event) {
     int i = 0;
     while (i < inotify_event.buffer_len) {
@@ -301,11 +332,14 @@ void run_inotify_event(struct socket_t *s, struct inotify_event_t inotify_event)
         case IN_MODIFY: printf("File modified or created %s\n", event->name);
             dripbox_upload(s, fullpath.data);
             break;
-        case IN_ATTRIB: printf("[NOT IMPLEMENTED] IN_ATTRIB\n");
+        case IN_ATTRIB: printf("File modified or created %s\n", event->name);
+            dripbox_upload(s, fullpath.data);
             break;
-        case IN_MOVED_TO: printf("[NOT IMPLEMENTED] IN_MOVED_TO\n");
+        case IN_MOVED_TO: printf("File modified or created %s\n", event->name);
+            dripbox_upload(s, fullpath.data);
             break;
-        case IN_MOVED_FROM: printf("[NOT IMPLEMENTED] IN_MOVED_FROM\n");
+        case IN_MOVED_FROM: printf("File deleted %s\n", event->name);
+            dripbox_delete(s, event->name);
             break;
         case IN_DELETE: printf("File deleted %s\n", event->name);
             dripbox_delete(s, event->name);
