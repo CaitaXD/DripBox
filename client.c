@@ -11,10 +11,9 @@
 #include <time.h>
 #include  "string_view.h"
 
-
-bool no_update = false;
 struct string_view_t username = {};
 bool quit = false;
+bool no_update = false;
 
 const struct string_view_t sync_dir_path = (struct string_view_t){
     .data = "sync_dir/",
@@ -405,16 +404,14 @@ void run_inotify_event(struct socket_t *s, struct inotify_event_t inotify_event)
     }
 }
 
-
-const struct inotify_watcher_t watcher;
-
 void *inotify_watcher_loop(const void *args) {
     struct socket_t *s = (struct socket_t *) args;
 
-    watcher = init_inotify(-1, "sync_dir");
+    const struct inotify_watcher_t watcher = init_inotify(-1, "sync_dir");
     while (!quit) {
         if (no_update) { continue; }
         const struct inotify_event_t inotify_event = read_event(watcher);
+        if (inotify_event.error == EAGAIN) { continue; }
         run_inotify_event(s, inotify_event);
     }
 
