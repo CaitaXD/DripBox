@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <dirent.h>
 #include <common.h>
 #include <dripbox_common.h>
 #include <Monitor.h>
@@ -51,6 +52,8 @@ static void handle_massage(user_table_t *hash_table, struct user_t user);
 static void *incoming_connections_worker(const void *arg);
 
 static void *client_connections_worker(const void *arg);
+
+static void dripbox_handle_list(struct user_t user, struct socket_t client, uint8_t *buffer);
 
 static int server_main() {
     signal(SIGPIPE, SIG_IGN);
@@ -364,6 +367,10 @@ static void handle_massage(user_table_t *hash_table, const struct user_t user) {
         dripbox_handle_delete(*hash_table, user, client, buffer);
         break;
     }
+    case MSG_LIST: {
+        dripbox_handle_list(user, client, buffer);
+        break;
+    }
     default:
         log(LOG_INFO, "Invalid Message Type\n");
         break;
@@ -415,4 +422,80 @@ void *client_connections_worker(const void *arg) {
         }
     }
     return NULL;
+}
+
+int scandir_filters(const struct dirent *name) {
+    if(name->d_type == DT_DIR) {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+
+void dripbox_handle_list(struct user_t user, struct socket_t client, uint8_t *buffer) {
+    struct dirent **namelist;
+    int n;
+    char path_client[100] = "./sync_dir_";
+    printf("%s", user.username.data);
+    strcat(path_client, user.username.data);
+    strcat(path_client, "/");
+
+    const struct string_view_t path_client_SV = (struct string_view_t){
+        .data = path_client,
+        .length = strlen(path_client),
+    };
+
+    printf("%s", path_client);
+    // referencia do scandir pro relatorio dps: https://lloydrochester.com/post/c/list-directory/
+    // n = scandir(path_client, &namelist, scandir_filters, alphasort);
+    n = scandir(path_client, &namelist, scandir_filters, alphasort);
+
+
+    struct dripbox_file_times_t files_list[n];
+
+    const struct dripbox_msg_header_t msg_header = {
+        .version = 1,
+        .type = MSG_LIST,
+    };
+
+    const struct dripbox_upload_header_t upload_header = {
+        .file_name_length = 0,
+        .payload_length = n,
+    };
+
+    struct stat statbuf;
+    //getchar();
+    while(n-- && upload_header.payload_length) {
+        printf("test");
+        const struct string_view_t file_path = (struct string_view_t){
+            .data = namelist[n]->d_name,
+            .length = strlen(namelist[n]->d_name),
+        };
+        // referencia do stat pro relatorio: https://pubs.opengroup.org/onlinepubs/009695399/functions/stat.html
+        // int status = stat(path_combine(path_client_SV, file_path).data, &statbuf);
+        int status = stat(path_combine(path_client_SV, file_path).data, &statbuf);
+
+        if(!status) {
+            files_list[n] = (struct dripbox_file_times_t){
+                .name = "",
+                .ctime = statbuf.st_ctime,
+                .atime = statbuf.st_atime,
+                .mtime = statbuf.st_mtime,
+            };
+        }
+        else {
+            log(LOG_INFO, "Stat Error %s\n", file_path.data);
+            files_list[n] = (struct dripbox_file_times_t){
+                .name = "",
+                .ctime = 0,
+                .atime = 0,
+                .mtime = 0,
+            };
+        }
+        memcpy(files_list[n].name, file_path.data, strlen(file_path.data)+1);
+    }
+
+    socket_write(&client, size_and_address(msg_header), 0);
+    socket_write(&client, size_and_address(upload_header), 0);
+    socket_write(&client, size_and_address(files_list), 0);
 }

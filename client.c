@@ -62,6 +62,8 @@ static void try_recive_message(struct socket_t *s);
 
 static void *client_rotine(const void *args);
 
+static int dripbox_list_server(struct socket_t *s);
+
 void dripbox_list_client(struct string_view_t sync_dir_path);
 
 void run_inotify_event(struct socket_t *s, struct inotify_event_t inotify_event);
@@ -125,8 +127,7 @@ void *client_rotine(const void *args) {
         } else if (strncmp(cmd.data, cmd_list_client.data, cmd_list_client.length) == 0) {
             dripbox_list_client(sync_dir_path);
         } else if (strncmp(cmd.data, cmd_list_server.data, cmd_list_server.length) == 0) {
-            printf("list_server not implemented\n\n");
-            log(LOG_ERROR, "%s\n", "NOT IMPLEMENTED");
+	    dripbox_list_server(s);
         } else if (strncmp(cmd.data, cmd_exit.data, cmd_exit.length) == 0) {
             quit = true;
         }
@@ -488,4 +489,81 @@ void recive_message(struct socket_t *s) {
 void try_recive_message(struct socket_t *s) {
     if (!socket_pending(s, 0)) { return; }
     recive_message(s);
+}
+
+int dripbox_list_server(struct socket_t *s) {
+    if (s->error != 0) { return -1; }
+
+    const struct dripbox_msg_header_t in_msg_header = {
+        .version = 1,
+        .type = MSG_LIST,
+    };
+
+    socket_write(s, size_and_address(in_msg_header), 0);
+    if (s->error != 0) {
+        log(LOG_ERROR, "%s\n", strerror(s->error));
+        return -1;
+    }
+
+    uint8_t buffer[DRIPBOX_MAX_HEADER_SIZE] = {};
+
+    struct dripbox_msg_header_t *out_msg_header = (void *) buffer;
+    if (socket_read_exactly(s, size_and_address(*out_msg_header), 0) < 0) {
+        log(LOG_ERROR, "%s\n", strerror(errno));
+        return -1;
+    }
+
+    if (out_msg_header->type == MSG_ERROR) {
+        var error_header = *(struct dripbox_error_header_t *) (buffer + sizeof *out_msg_header);
+        uint8_t *error_msg_buffer = buffer + sizeof error_header;
+
+        socket_read_exactly(s, size_and_address(error_header), 0);
+        socket_read_exactly(s, error_header.error_length, error_msg_buffer, 0);
+        if (s->error != 0) {
+            log(LOG_ERROR, "%s\n", strerror(s->error));
+            printf("Dripbox error: Unknown\n");
+        } else {
+            printf("Dripbox error: %.*s\n", (int) error_header.error_length, (char *) error_msg_buffer);
+        }
+        return -1;
+    }
+
+    var upload_header = *(struct dripbox_upload_header_t *) (buffer + sizeof *out_msg_header);
+
+    socket_read_exactly(s, size_and_address(upload_header), 0);
+
+    int n = upload_header.payload_length;
+
+    struct dripbox_file_times_t list_files[n];
+    memset(list_files, 0, n*sizeof(struct dripbox_file_times_t));
+
+    socket_read_exactly(s, size_and_address(list_files), 0);
+
+    // struct dripbox_file_times_t *list_files[n] = &list_files_buf;
+
+    if (s->error != 0) {
+        log(LOG_ERROR, "%s\n", strerror(errno));
+        return -1;
+    }
+
+    printf("\n\n*****CLIENT\'S SERVER FILES:*****\n\n");
+    while(n && n--) {
+        struct dripbox_file_times_t aux = (struct dripbox_file_times_t){
+            .name = "",
+            .ctime = list_files[n].ctime,
+            .atime = list_files[n].atime,
+            .mtime = list_files[n].mtime,
+        };
+        memcpy(aux.name, list_files[n].name, strlen(list_files[n].name)+1);
+        struct tm *tm_ctime = localtime(&aux.ctime);
+        struct tm *tm_atime = localtime(&aux.atime);
+        struct tm *tm_mtime = localtime(&aux.mtime);
+
+        printf("NAME: %s \n", aux.name);
+        printf("CTIME: %d/%2d/%2d %2d:%2d.%2d\n", tm_ctime->tm_year + 1900, tm_ctime->tm_mon + 1, tm_ctime->tm_mday, tm_ctime->tm_hour, tm_ctime->tm_min, tm_ctime->tm_sec);
+        printf("ATIME: %d/%2d/%2d %2d:%2d.%2d\n", tm_atime->tm_year + 1900, tm_atime->tm_mon + 1, tm_atime->tm_mday, tm_atime->tm_hour, tm_atime->tm_min, tm_atime->tm_sec);
+        printf("MTIME: %d/%2d/%2d %2d:%2d.%2d\n", tm_mtime->tm_year + 1900, tm_mtime->tm_mon + 1, tm_mtime->tm_mday, tm_mtime->tm_hour, tm_mtime->tm_min, tm_mtime->tm_sec);
+        printf("\n");
+    }
+
 }
