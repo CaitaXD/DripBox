@@ -335,7 +335,8 @@ void dripbox_handle_delete(user_table_t hash_table, const struct user_t user, st
     log(LOG_INFO, "File Deleted %s\n", path.data);
 }
 
-static void handle_massage(user_table_t *hash_table, const struct user_t user) {
+static void handle_massage(user_table_t *hash_table, const struct user_t user) {	
+    memset(tls_dripbox_buffer, 0, sizeof tls_dripbox_buffer);
     struct socket_t client = user.socket;
     const struct dripbox_msg_header_t *msg_header = (void *) tls_dripbox_buffer;
 
@@ -347,7 +348,6 @@ static void handle_massage(user_table_t *hash_table, const struct user_t user) {
     }
 
     uint8_t *buffer = tls_dripbox_buffer + sizeof *msg_header;
-
     const char *msg_type = msg_type_cstr(msg_header->type);
     switch (msg_header->type) {
     case MSG_NOOP: { return; }
