@@ -13,7 +13,7 @@ struct string_view_t {
     char *data;
 };
 
-#define sv_args(sv__) (sv__).length, (sv__).data
+#define sv_deconstruct(sv__) (sv__).length, (sv__).data
 
 struct readonly_span_t {
     size_t length;
@@ -150,6 +150,12 @@ static struct z_string_t z_sv(const struct string_view_t sv, const struct alloca
         .length = sv.length,
     };
 }
+
+static bool (sv_equals)(const struct string_view_t a, const struct string_view_t b) {
+    return a.length == b.length && memcmp(a.data, b.data, a.length) == 0;
+}
+
+#define sv_equals(a__, b__) (sv_equals)(SV(a__), SV(b__))
 
 #define MATCH_PTR_CAST_RETURN(type__, ptr__) \
     type__*: *((type__*)(ptr__)), \

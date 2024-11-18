@@ -24,7 +24,7 @@ MONITOR_API void monitor_notify_all(struct monitor_t *monitor);
 MONITOR_API void monitor_wait_one(struct monitor_t *monitor);
 
 #define using_monitor(monitor__) \
-    scoped_expression(monitor_enter(monitor__), monitor_exit(monitor__))
+    scope(monitor_enter(monitor__), monitor_exit(monitor__))
 
 #define monitor_wait(monitor__, condition__) \
       while (!(condition__)) monitor_wait_one(monitor__)

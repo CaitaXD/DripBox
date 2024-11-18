@@ -33,7 +33,7 @@ INOTIFY_COMMON_API struct inotify_watcher_t init_inotify(int inotify_initial_fd,
 
 INOTIFY_COMMON_API struct inotify_event_t read_event(struct inotify_watcher_t watcher);
 
-struct inotify_watcher_t inotify_watcher_new(int inotify_initial_fd) {
+struct inotify_watcher_t inotify_watcher_new(const int inotify_initial_fd) {
     const struct inotify_watcher_t watcher_inst = {
         .inotify_fd = inotify_initial_fd,
         .watcher_fd = -1,
@@ -47,7 +47,7 @@ struct inotify_watcher_t inotify_watcher_new(int inotify_initial_fd) {
     return watcher_inst;
 }
 
-struct inotify_watcher_t init_inotify(int inotify_initial_fd, char dir[]) {
+struct inotify_watcher_t init_inotify(const int inotify_initial_fd, char dir[]) {
     struct inotify_watcher_t watcher_inst = inotify_watcher_new(inotify_initial_fd);
 
     if (watcher_inst.inotify_fd < 0) {
@@ -58,14 +58,14 @@ struct inotify_watcher_t init_inotify(int inotify_initial_fd, char dir[]) {
         }
     }
 
-    int test = inotify_add_watch(watcher_inst.inotify_fd, dir,
-                                 IN_MOVE | IN_MODIFY | IN_ATTRIB | IN_DELETE | IN_DELETE_SELF); //
-    if (test < 0) {
+    const int fd = inotify_add_watch(watcher_inst.inotify_fd, dir,
+                                       IN_MOVE | IN_MODIFY | IN_ATTRIB | IN_DELETE | IN_DELETE_SELF); //
+    if (fd < 0) {
         printf("erro");
         log(LOG_ERROR, "Inotify watch add: %s\n", strerror(errno));
         return watcher_inst;
     }
-    watcher_inst.watcher_fd = test;
+    watcher_inst.watcher_fd = fd;
 
     FD_ZERO(&watcher_inst.read_fds);
 
@@ -74,7 +74,7 @@ struct inotify_watcher_t init_inotify(int inotify_initial_fd, char dir[]) {
     return watcher_inst;
 }
 
-struct inotify_event_t read_event(struct inotify_watcher_t watcher) {
+struct inotify_event_t read_event(const struct inotify_watcher_t watcher) {
     struct inotify_event_t inotify_event = {};
 
     inotify_event.buffer_len = read(watcher.inotify_fd, inotify_event.event_buffer, EVENT_BUFFER_LEN);

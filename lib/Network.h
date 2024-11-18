@@ -112,7 +112,7 @@ NETWORK_API ssize_t socket_read(struct socket_t *socket, size_t length, uint8_t 
 
 NETWORK_API ssize_t socket_write(struct socket_t *socket, size_t length, uint8_t buffer[static length], int flags);
 
-NETWORK_API ssize_t socket_read_file(struct socket_t *socket, FILE *file, size_t lenght);
+NETWORK_API ssize_t socket_write_file(struct socket_t *socket, FILE *file, size_t lenght);
 
 #define socket_option(fd__, level__, VAL)\
     setsockopt(fd__, level__, SOL_SOCKET, (typeof(VAL)[1]){(VAL)}, sizeof (VAL))
@@ -318,7 +318,7 @@ ssize_t socket_write(struct socket_t *socket, const size_t length, uint8_t buffe
     return length;
 }
 
-ssize_t socket_read_file(struct socket_t *socket, FILE *file, const size_t lenght) {
+ssize_t socket_write_file(struct socket_t *socket, FILE *file, const size_t lenght) {
     if (socket->error != 0) { return -1; }
     const int fd = fileno(file);
     if (fd < 0) { return 0; }

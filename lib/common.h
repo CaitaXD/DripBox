@@ -152,7 +152,7 @@ static bool string_equals(const void *a, const void *b) {
     return strcmp(str_a, str_b) == 0;
 }
 
-#define size_and_address(struct__) sizeof(struct__), (uint8_t*)&(struct__)
+#define size_and_address(struct__) sizeof(struct__), (void*)&(struct__)
 
 #define MAP0(fn, dummy)
 #define MAP1(fn, a) fn(a)

@@ -16,8 +16,8 @@ enum msg_type {\
 enum { DRIPBOX_MAX_HEADER_SIZE = 4096 };
 
 struct dripbox_msg_header_t {
-    uint8_t version: 1;
-    uint8_t type: 7;
+    uint8_t version;
+    uint8_t type;
 } __attribute__((packed));
 
 struct dripbox_login_header_t {
@@ -49,7 +49,7 @@ enum { MODE_INVALID, MODE_CLIENT, MODE_SERVER } mode_type = MODE_INVALID;
 
 typedef int errno_t;
 
-static errno_t sockdump_to_file(const struct socket_t *s, const char *path, size_t length) {
+static errno_t socket_read_to_file(const struct socket_t *s, const char *path, size_t length) {
     errno_t ret = 0;
     scope(FILE *file = fopen(path, "wb"), fclose(file)) {
         if (file == NULL) {
