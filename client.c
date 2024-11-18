@@ -11,6 +11,7 @@
 #include <time.h>
 #include  "string_view.h"
 
+struct inotify_watcher_t watcher;
 struct string_view_t username = {};
 bool quit = false;
 
@@ -402,9 +403,6 @@ void run_inotify_event(struct socket_t *s, struct inotify_event_t inotify_event)
         i += EVENT_SIZE + event->len;
     }
 }
-
-
-const struct inotify_watcher_t watcher;
 
 void *inotify_watcher_loop(const void *args) {
     struct socket_t *s = (struct socket_t *) args;
