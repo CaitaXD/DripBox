@@ -230,6 +230,8 @@ int dripbox_delete(struct socket_t *s, char *file_path) {
         log(LOG_ERROR, "%s\n", strerror(s->error));
         return -1;
     }
+
+    log(LOG_INFO, "Sent File %*s to delete\n", (int)sv_deconstruct(file_name));
     return sent;
 }
 
@@ -401,13 +403,18 @@ void run_inotify_event(struct socket_t *s, struct inotify_event_t inotify_event)
     }
 }
 
+
+const struct inotify_watcher_t watcher;
+
 void *inotify_watcher_loop(const void *args) {
     struct socket_t *s = (struct socket_t *) args;
 
-    const struct inotify_watcher_t watcher = init_inotify(-1, "sync_dir");
+    watcher = init_inotify(-1, "sync_dir");
     while (!quit) {
         const struct inotify_event_t inotify_event = read_event(watcher);
-        if (inotify_event.error == EAGAIN) { continue; }
+        if (inotify_event.error != 0) {
+            continue;
+        }
         run_inotify_event(s, inotify_event);
     }
 
@@ -421,6 +428,7 @@ void *inotify_watcher_loop(const void *args) {
 }
 
 void recive_message(struct socket_t *s) {
+    inotify_rm_watch(watcher.inotify_fd, watcher.watcher_fd);
     uint8_t buffer[DRIPBOX_MAX_HEADER_SIZE] = {};
     const struct dripbox_msg_header_t *msg_header = (void *) buffer;
     if (socket_read_exactly(s, size_and_address(*msg_header), 0) == 0) {
@@ -456,7 +464,7 @@ void recive_message(struct socket_t *s) {
     case MSG_DELETE: {
         const struct dripbox_delete_header_t *delete_header = (void *) msg_header + sizeof *msg_header;
         socket_read_exactly(s, size_and_address(*delete_header), 0);
-        socket_read_exactly(s, delete_header->file_name_length, (uint8_t*)delete_header + sizeof *delete_header, 0);
+        socket_read_exactly(s, delete_header->file_name_length, (uint8_t *) delete_header + sizeof *delete_header, 0);
         if (s->error != 0) {
             log(LOG_ERROR, "%s\n", strerror(s->error));
             return;
@@ -477,6 +485,7 @@ void recive_message(struct socket_t *s) {
         break;
     }
     }
+    watcher = init_inotify(-1, "sync_dir");
 }
 
 void try_recive_message(struct socket_t *s) {
