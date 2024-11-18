@@ -192,6 +192,7 @@ static bool (sv_equals)(const struct string_view_t a, const struct string_view_t
     }\
     __total_len = min(__total_len, PATH_MAX);\
     static char __path_buffer[PATH_MAX] = {};\
+    memset(__path_buffer, 0, sizeof __path_buffer);\
     struct string_view_t __acc = (struct string_view_t){\
         .data = __path_buffer,\
         .length = 0,\
