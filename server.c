@@ -127,6 +127,7 @@ static void dripbox_handle_login(user_table_t *hash_table, struct socket_t clien
 
 static void dripbox_handle_upload(user_table_t *hash_table, const struct user_t user, struct socket_t client,
                                   uint8_t *buffer) {
+    printf("dripbox_handle_upload\n");
     const struct dripbox_upload_header_t *upload_header = (void *) buffer;
     socket_read_exactly(&client, sizeof(struct dripbox_upload_header_t), buffer, 0);
     socket_read_exactly(&client, upload_header->file_name_length, buffer + sizeof *upload_header, 0);
@@ -153,6 +154,7 @@ static void dripbox_handle_upload(user_table_t *hash_table, const struct user_t 
         const var kvp = (typeof(*hash_table)) entry->value;
         if (!sv_equals(kvp->value.username, username)) { continue; }
         if (kvp->value.socket.sock_fd == user.socket.sock_fd) { continue; }
+        if (kvp->value.socket.sock_fd == -1) { continue; }
 
         scope(FILE* file = fopen(path.data, "rb"), fclose(file)) {
             if (file == NULL) {
@@ -308,6 +310,7 @@ void dripbox_handle_delete(user_table_t hash_table, const struct user_t user, st
         const var kvp = (typeof(hash_table)) entry->value;
         if (!sv_equals(kvp->value.username, user.username)) { continue; }
         if (kvp->value.socket.sock_fd == user.socket.sock_fd) { continue; }
+        if (kvp->value.socket.sock_fd == -1) { continue; }
 
         const struct dripbox_msg_header_t msg_header = {
             .version = 1,
@@ -406,9 +409,7 @@ void *client_connections_worker(const void *arg) {
                 struct socket_t client = user.socket;
                 client.error = 0;
 
-                if (!socket_pending(&client, 0)) {
-                    continue;
-                }
+                if (!socket_pending(&client, 0)) { continue; }
                 handle_massage(&users, user);
             }
         }
