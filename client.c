@@ -409,8 +409,8 @@ void *inotify_watcher_loop(const void *args) {
 
     const struct inotify_watcher_t watcher = init_inotify(-1, "sync_dir");
     while (!quit) {
-        if (no_update) { continue; }
         const struct inotify_event_t inotify_event = read_event(watcher);
+        if (no_update) { continue; }
         if (inotify_event.error == EAGAIN) { continue; }
         run_inotify_event(s, inotify_event);
     }
@@ -435,6 +435,7 @@ void recive_message(struct socket_t *s) {
         return;
     }
 
+    no_update = true;
     switch (msg_header->type) {
     case MSG_NOOP: break;
     case MSG_UPLOAD: {
@@ -481,11 +482,10 @@ void recive_message(struct socket_t *s) {
         break;
     }
     }
+    no_update = false;
 }
 
 void try_recive_message(struct socket_t *s) {
     if (!socket_pending(s, 0)) { return; }
-    no_update = true;
     recive_message(s);
-    no_update = false;
 }
