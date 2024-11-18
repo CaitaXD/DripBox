@@ -75,8 +75,8 @@ struct inotify_watcher_t init_inotify(const int inotify_initial_fd, char dir[]) 
 }
 
 struct inotify_event_t read_event(const struct inotify_watcher_t watcher) {
-    struct inotify_event_t inotify_event = {};
-
+    struct inotify_event_t inotify_event = {0};
+ 
     inotify_event.buffer_len = read(watcher.inotify_fd, inotify_event.event_buffer, EVENT_BUFFER_LEN);
     if (inotify_event.buffer_len < 0) {
         inotify_event.error = errno;
