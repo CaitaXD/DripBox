@@ -11,7 +11,8 @@
 #include <time.h>
 #include  "string_view.h"
 
-struct inotify_watcher_t watcher;
+
+bool no_update = false;
 struct string_view_t username = {};
 bool quit = false;
 
@@ -404,15 +405,16 @@ void run_inotify_event(struct socket_t *s, struct inotify_event_t inotify_event)
     }
 }
 
+
+const struct inotify_watcher_t watcher;
+
 void *inotify_watcher_loop(const void *args) {
     struct socket_t *s = (struct socket_t *) args;
 
     watcher = init_inotify(-1, "sync_dir");
     while (!quit) {
+        if (no_update) { continue; }
         const struct inotify_event_t inotify_event = read_event(watcher);
-        if (inotify_event.error != 0) {
-            continue;
-        }
         run_inotify_event(s, inotify_event);
     }
 
@@ -426,7 +428,6 @@ void *inotify_watcher_loop(const void *args) {
 }
 
 void recive_message(struct socket_t *s) {
-    inotify_rm_watch(watcher.inotify_fd, watcher.watcher_fd);
     uint8_t buffer[DRIPBOX_MAX_HEADER_SIZE] = {};
     const struct dripbox_msg_header_t *msg_header = (void *) buffer;
     if (socket_read_exactly(s, size_and_address(*msg_header), 0) == 0) {
@@ -483,10 +484,11 @@ void recive_message(struct socket_t *s) {
         break;
     }
     }
-    watcher = init_inotify(-1, "sync_dir");
 }
 
 void try_recive_message(struct socket_t *s) {
     if (!socket_pending(s, 0)) { return; }
+    no_update = true;
     recive_message(s);
+    no_update = false;
 }
