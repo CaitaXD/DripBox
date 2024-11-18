@@ -15,8 +15,8 @@ struct string_view_t username = {};
 bool quit = false;
 
 const struct string_view_t sync_dir_path = (struct string_view_t){
-    .data = "./sync_dir/",
-    .length = sizeof "./sync_dir/" - 1,
+    .data = "sync_dir/",
+    .length = sizeof "sync_dir/" - 1,
 };
 static const struct string_view_t cmd_upload = (struct string_view_t){
     .data = "upload",
@@ -404,7 +404,7 @@ void run_inotify_event(struct socket_t *s, struct inotify_event_t inotify_event)
 void *inotify_watcher_loop(const void *args) {
     struct socket_t *s = (struct socket_t *) args;
 
-    const struct inotify_watcher_t watcher = init_inotify(-1, "./sync_dir");
+    const struct inotify_watcher_t watcher = init_inotify(-1, "sync_dir");
     while (!quit) {
         const struct inotify_event_t inotify_event = read_event(watcher);
         if (inotify_event.error == EAGAIN) { continue; }
@@ -421,7 +421,8 @@ void *inotify_watcher_loop(const void *args) {
 }
 
 void recive_message(struct socket_t *s) {
-    const struct dripbox_msg_header_t *msg_header = (void *) tls_dripbox_buffer;
+    uint8_t buffer[DRIPBOX_MAX_HEADER_SIZE] = {};
+    const struct dripbox_msg_header_t *msg_header = (void *) buffer;
     if (socket_read_exactly(s, size_and_address(*msg_header), 0) == 0) {
         return;
     }
@@ -433,35 +434,40 @@ void recive_message(struct socket_t *s) {
     switch (msg_header->type) {
     case MSG_NOOP: break;
     case MSG_UPLOAD: {
-        const struct dripbox_upload_header_t *upload_header = (void *) msg_header + sizeof *msg_header;
+        const struct dripbox_upload_header_t *upload_header = (void *) (buffer + sizeof *msg_header);
         socket_read_exactly(s, size_and_address(*upload_header), 0);
+        socket_read_exactly(s, upload_header->file_name_length, (uint8_t *) upload_header + sizeof *upload_header, 0);
         if (s->error != 0) {
             log(LOG_ERROR, "%s\n", strerror(s->error));
             return;
         }
 
-        const struct string_view_t file_name = sv_substr(
-            sv_cstr(tls_dripbox_buffer),
-            sizeof *upload_header, upload_header->file_name_length
+        const struct string_view_t file_name = sv_take(
+            sv_cstr((char *) upload_header + sizeof *upload_header),
+            upload_header->file_name_length
         );
 
-        socket_read_to_file(s, path_combine("/sync_dir/", file_name).data, upload_header->payload_length);
+        const var path = path_combine("sync_dir", file_name);
+        if (socket_read_to_file(s, path.data, upload_header->payload_length) != 0) {
+            log(LOG_ERROR, "%s\n", strerror(errno));
+        }
         break;
     }
     case MSG_DELETE: {
         const struct dripbox_delete_header_t *delete_header = (void *) msg_header + sizeof *msg_header;
         socket_read_exactly(s, size_and_address(*delete_header), 0);
+        socket_read_exactly(s, delete_header->file_name_length, (uint8_t*)delete_header + sizeof *delete_header, 0);
         if (s->error != 0) {
             log(LOG_ERROR, "%s\n", strerror(s->error));
             return;
         }
 
-        const struct string_view_t file_name = sv_substr(
-            sv_cstr(tls_dripbox_buffer),
-            sizeof *delete_header, delete_header->file_name_length
+        const struct string_view_t file_name = sv_take(
+            sv_cstr((char *) delete_header + sizeof *delete_header),
+            delete_header->file_name_length
         );
 
-        if (unlink(path_combine("/sync_dir/", file_name).data) < 0) {
+        if (unlink(path_combine("sync_dir", file_name).data) < 0) {
             log(LOG_ERROR, "%s\n", strerror(errno));
         }
         break;

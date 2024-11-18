@@ -135,9 +135,8 @@ static void dripbox_handle_upload(user_table_t *hash_table, const struct user_t 
         return;
     }
 
-    const struct string_view_t file_name = sv_substr(
-        sv_cstr((char *) buffer),
-        sizeof *upload_header, upload_header->file_name_length
+    const struct string_view_t file_name = sv_take(
+        sv_cstr((char *) buffer + sizeof *upload_header), upload_header->file_name_length
     );
 
     const struct string_view_t username = user.username;
@@ -176,12 +175,15 @@ static void dripbox_handle_upload(user_table_t *hash_table, const struct user_t 
                 .payload_length = st.st_size,
             };
 
-            for (int i = 0; i < 5; i++) {
-                socket_write(&kvp->value.socket, size_and_address(msg_header), 0);
-                socket_write(&kvp->value.socket, size_and_address(new_upload_header), 0);
-                socket_write_file(&kvp->value.socket, file, new_upload_header.payload_length);
-            }
-            log(LOG_INFO, "File Uploaded to %s %*s\n", kvp->key, (int)sv_deconstruct(kvp->value.username));
+            socket_write(&kvp->value.socket, size_and_address(msg_header), 0);
+            socket_write(&kvp->value.socket, size_and_address(new_upload_header), 0);
+            socket_write(&kvp->value.socket, sv_deconstruct(file_name), 0);
+            socket_write_file(&kvp->value.socket, file, st.st_size);
+
+            log(LOG_INFO, "File Uploaded %*s to %s %*s\n",
+                (int)sv_deconstruct(file_name), kvp->key,
+                (int)sv_deconstruct(kvp->value.username)
+            );
         }
     }
 }
@@ -314,6 +316,7 @@ void dripbox_handle_delete(user_table_t hash_table, const struct user_t user, st
         const struct dripbox_delete_header_t delete_header = {
             .file_name_length = file_name.length,
         };
+
         socket_write(&kvp->value.socket, size_and_address(msg_header), 0);
         socket_write(&kvp->value.socket, size_and_address(delete_header), 0);
         socket_write(&kvp->value.socket, sv_deconstruct(file_name), 0);
@@ -321,7 +324,7 @@ void dripbox_handle_delete(user_table_t hash_table, const struct user_t user, st
         log(LOG_INFO, "Sending File Deleted %*s to %s %*s\n",
             (int)sv_deconstruct(file_name), kvp->key,
             (int)sv_deconstruct(kvp->value.username)
-            );
+        );
     }
     log(LOG_INFO, "File Deleted %s\n", path.data);
 }
