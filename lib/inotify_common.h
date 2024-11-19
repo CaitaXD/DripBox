@@ -53,7 +53,7 @@ struct inotify_watcher_t init_inotify(const int inotify_initial_fd, char dir[]) 
     if (watcher_inst.inotify_fd < 0) {
         watcher_inst.inotify_fd = inotify_init();
         if (watcher_inst.inotify_fd < 0) {
-            log(LOG_ERROR, "Inotify init: %s\n", strerror(errno));
+            diagf(LOG_ERROR, "Inotify init: %s\n", strerror(errno));
             return watcher_inst;
         }
     }
@@ -62,7 +62,7 @@ struct inotify_watcher_t init_inotify(const int inotify_initial_fd, char dir[]) 
                                        IN_MOVE | IN_MODIFY | IN_ATTRIB | IN_DELETE | IN_DELETE_SELF); //
     if (fd < 0) {
         printf("erro");
-        log(LOG_ERROR, "Inotify watch add: %s\n", strerror(errno));
+        diagf(LOG_ERROR, "Inotify watch add: %s\n", strerror(errno));
         return watcher_inst;
     }
     watcher_inst.watcher_fd = fd;
@@ -82,7 +82,7 @@ struct inotify_event_t read_event(const struct inotify_watcher_t watcher) {
         inotify_event.error = errno;
         if (inotify_event.error == EAGAIN) { return inotify_event; }
 
-        log(LOG_ERROR, "Read Inotify watcher event: %s\n", strerror(errno));
+        diagf(LOG_ERROR, "Read Inotify watcher event: %s\n", strerror(errno));
     } else if (!inotify_event.buffer_len) {
         printf("event buffet too small apparently");
     }

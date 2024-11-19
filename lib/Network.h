@@ -105,15 +105,15 @@ NETWORK_API bool socket_pending(const struct socket_t *socket, int timeout);
 
 NETWORK_API bool poll_next(size_t len, const struct pollfd fds[static len], int events);
 
-NETWORK_API ssize_t socket_read_exactly(struct socket_t *socket, size_t length, uint8_t buffer[static length],
+NETWORK_API ssize_t socket_read_exactly(struct socket_t *s, size_t length, uint8_t buffer[static length],
                                         int flags);
 
-NETWORK_API ssize_t socket_read(struct socket_t *socket, size_t length, uint8_t buffer[static length], int flags);
+NETWORK_API ssize_t socket_read(struct socket_t *s, size_t length, uint8_t buffer[static length], int flags);
 
-NETWORK_API ssize_t socket_write(struct socket_t *socket, size_t length, const uint8_t buffer[static length],
+NETWORK_API ssize_t socket_write(struct socket_t *s, size_t length, const uint8_t buffer[static length],
                                  int flags);
 
-NETWORK_API ssize_t socket_write_file(struct socket_t *socket, FILE *file, size_t lenght);
+NETWORK_API ssize_t socket_write_file(struct socket_t *s, FILE *file, size_t lenght);
 
 #define socket_option(fd__, level__, VAL)\
     setsockopt(fd__, level__, SOL_SOCKET, (typeof(VAL)[1]){(VAL)}, sizeof (VAL))
@@ -283,16 +283,17 @@ bool poll_next(const size_t len, const struct pollfd fds[], const int events) {
     return false;
 }
 
-ssize_t socket_read_exactly(struct socket_t *socket, const size_t length, uint8_t buffer[static length],
+ssize_t socket_read_exactly(struct socket_t *s, const size_t length, uint8_t buffer[static length],
                             const int flags) {
     ptrdiff_t left_to_read = length;
     while (left_to_read > 0) {
-        const ssize_t recvd = recv(socket->sock_fd, buffer, left_to_read, flags);
+        const ssize_t recvd = recv(s->sock_fd, buffer, left_to_read, flags);
         if (recvd == 0) {
-            return 0;
+            socket_close(s);
+            return length - left_to_read;
         }
         if (recvd < 0) {
-            socket->error = errno;
+            s->error = errno;
             return -1;
         }
         buffer += recvd;
@@ -301,27 +302,37 @@ ssize_t socket_read_exactly(struct socket_t *socket, const size_t length, uint8_
     return length;
 }
 
-ssize_t socket_read(struct socket_t *socket, const size_t length, uint8_t buffer[static length], const int flags) {
-    if (socket->error != 0) { return -1; }
-    if (recv(socket->sock_fd, buffer, length, flags) < 0) {
-        socket->error = errno;
+ssize_t socket_read(struct socket_t *s, const size_t length, uint8_t buffer[static length], const int flags) {
+    if (s->error != 0) { return -1; }
+    const ssize_t got = recv(s->sock_fd, buffer, length, flags);
+    if (got == 0) {
+        if(length > 0) { socket_close(s); }
+        return 0;
+    }
+    if (got < 0) {
+        s->error = errno;
         return -1;
     }
-    return length;
+    return got;
 }
 
-ssize_t socket_write(struct socket_t *socket, const size_t length, const uint8_t buffer[static length],
+ssize_t socket_write(struct socket_t *s, const size_t length, const uint8_t buffer[static length],
                      const int flags) {
-    if (socket->error != 0) { return -1; }
-    if (send(socket->sock_fd, buffer, length, flags) < 0) {
-        socket->error = errno;
+    if (s->error != 0) { return -1; }
+    const ssize_t sent = send(s->sock_fd, buffer, length, flags);
+    if (sent == 0) {
+        if(length > 0) { socket_close(s); }
+        return 0;
+    }
+    if (sent < 0) {
+        s->error = errno;
         return -1;
     }
-    return length;
+    return sent;
 }
 
-ssize_t socket_write_file(struct socket_t *socket, FILE *file, const size_t lenght) {
-    if (socket->error != 0) { return -1; }
+ssize_t socket_write_file(struct socket_t *s, FILE *file, const size_t lenght) {
+    if (s->error != 0) { return -1; }
     const int fd = fileno(file);
     if (fd < 0) { return 0; }
 
@@ -329,14 +340,17 @@ ssize_t socket_write_file(struct socket_t *socket, FILE *file, const size_t leng
     off_t offset = 0;
     while (left_to_read > 0) {
         fseek(file, offset, SEEK_SET);
-        const ssize_t result = sendfile(socket->sock_fd, fd, &offset, left_to_read);
+        const ssize_t result = sendfile(s->sock_fd, fd, &offset, left_to_read);
+        if (result == 0) {
+            socket_close(s);
+            return lenght - left_to_read;
+        }
         if (result < 0) {
-            socket->error = errno;
+            s->error = errno;
             return -1;
         }
         left_to_read -= result;
     }
-
     return lenght;
 }
 

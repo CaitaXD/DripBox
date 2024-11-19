@@ -56,11 +56,11 @@ static bool fd_pending(const int fd) {
     return false;
 }
 
-static int dripbox_login(struct socket_t *s, struct string_view_t username);
+static int dripbox_login_to_server(struct socket_t *s, struct string_view_t username);
 
 static int dripbox_upload_to_server(struct socket_t *s, char *file_path);
 
-static int dripbox_download(struct socket_t *s, char *file_path);
+static int dripbox_download_from_server(struct socket_t *s, char *file_path);
 
 static bool try_recive_message(struct socket_t *s);
 
@@ -84,11 +84,11 @@ int client_main() {
     var server_endpoint = ipv4_endpoint_new(ntohl(ip), port);
     var s = socket_new(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (!tcp_client_connect(&s, &server_endpoint)) {
-        log(LOG_ERROR, "%s", strerror(s.error));
+        diagf(LOG_ERROR, "%s", strerror(s.error));
         return -1;
     }
-    dripbox_login(&s, username);
-    log(LOG_INFO, "Logged in\n");
+    dripbox_login_to_server(&s, username);
+    diagf(LOG_INFO, "Logged in\n");
     pthread_create(&inotify_watcher_thread_id, NULL, (void *) inotify_watcher_worker, &s);
     pthread_create(&common_client_thread_id, NULL, (void *) client_network_worker, &s);
 
@@ -103,8 +103,8 @@ void *client_network_worker(const void *args) {
     struct socket_t *s = (struct socket_t *) args;
 
     while (!quit) {
-        try_recive_message(s);
         s->error = 0;
+        try_recive_message(s);
         if (!fd_pending(STDIN_FILENO)) {
             continue;
         }
@@ -127,7 +127,7 @@ void *client_network_worker(const void *args) {
             if (file_path.data[file_path.length - 1] == '\n') {
                 file_path.data[file_path.length - 1] = 0;
             }
-            dripbox_download(s, file_path.data);
+            dripbox_download_from_server(s, file_path.data);
         } else if (strncmp(cmd.data, g_cmd_list_client.data, g_cmd_list_client.length) == 0) {
             dripbox_list_client(g_sync_dir_path);
         } else if (strncmp(cmd.data, g_cmd_list_server.data, g_cmd_list_server.length) == 0) {
@@ -141,24 +141,22 @@ void *client_network_worker(const void *args) {
     return NULL;
 }
 
-int dripbox_login(struct socket_t *s, const struct string_view_t username) {
+int dripbox_login_to_server(struct socket_t *s, const struct string_view_t username) {
     if (s->error != 0) { return -1; }
 
-    const struct dripbox_msg_header_t msg_header = {
+    socket_write_struct(s, ((struct dripbox_msg_header_t){
         .version = 1,
         .type = MSG_LOGIN,
-    };
+    }), 0);
 
-    const struct dripbox_login_header_t login_msg_header = {
+    socket_write_struct(s, ((struct dripbox_login_header_t){
         .length = username.length,
-    };
+    }), 0);
 
-    socket_write_struct(s, msg_header, 0);
-    socket_write_struct(s, login_msg_header, 0);
     socket_write(s, sv_deconstruct(username), 0);
 
     if (s->error != 0) {
-        log(LOG_ERROR, "%s\n", strerror(s->error));
+        diagf(LOG_ERROR, "%s\n", strerror(s->error));
         return -1;
     }
     return 0;
@@ -173,13 +171,13 @@ int dripbox_upload_to_server(struct socket_t *s, char *file_path) {
     while (sv_split_next(&it, sv_cstr("/"), &file_name)) {}
 
     if (stat(file_path, &file_stat) < 0) {
-        log(LOG_ERROR, "%s %s\n", strerror(errno), file_path);
+        diagf(LOG_ERROR, "%s %s\n", strerror(errno), file_path);
         return -1;
     }
 
     const uint8_t checksum = dripbox_file_checksum(file_path);
 
-    log(LOG_INFO, "Sending File "sv_fmt" Checksum %d\n", (int)sv_deconstruct(file_name), checksum);
+    diagf(LOG_INFO, "Sending File "sv_fmt" Checksum %d\n", (int)sv_deconstruct(file_name), checksum);
 
     const struct dripbox_msg_header_t msg_header = {
         .version = 1,
@@ -198,14 +196,14 @@ int dripbox_upload_to_server(struct socket_t *s, char *file_path) {
 
     scope(FILE *file = fopen(file_path, "rb"), file && fclose(file)) {
         if (file == NULL) {
-            log(LOG_ERROR, "%s\n", strerror(errno));
+            diagf(LOG_ERROR, "%s\n", strerror(errno));
             break;
         }
         socket_write_file(s, file, file_stat.st_size);
     }
 
     if (s->error != 0) {
-        log(LOG_ERROR, "%s\n", strerror(s->error));
+        diagf(LOG_ERROR, "%s\n", strerror(s->error));
         return -1;
     }
     return 0;
@@ -233,15 +231,15 @@ int dripbox_delete_from_server(struct socket_t *s, char *file_path) {
     socket_write(s, sv_deconstruct(file_name), 0);
 
     if (s->error != 0) {
-        log(LOG_ERROR, "%s\n", strerror(s->error));
+        diagf(LOG_ERROR, "%s\n", strerror(s->error));
         return -1;
     }
 
-    log(LOG_INFO, "Sent File "sv_fmt" to delete\n", (int)sv_deconstruct(file_name));
+    diagf(LOG_INFO, "Sent File "sv_fmt" to delete\n", (int)sv_deconstruct(file_name));
     return 0;
 }
 
-int dripbox_download(struct socket_t *s, char *file_path) {
+int dripbox_download_from_server(struct socket_t *s, char *file_path) {
     if (s->error != 0) { return -1; }
 
     struct string_view_t it = sv_cstr(file_path);
@@ -262,13 +260,13 @@ int dripbox_download(struct socket_t *s, char *file_path) {
     socket_write_struct(s, download_header, 0);
     socket_write(s, sv_deconstruct(file_name), 0);
     if (s->error != 0) {
-        log(LOG_ERROR, "%s\n", strerror(s->error));
+        diagf(LOG_ERROR, "%s\n", strerror(s->error));
         return -1;
     }
 
     const struct dripbox_msg_header_t out_msg_header = socket_read_struct(s, struct dripbox_msg_header_t, 0);
     if (s->error != 0) {
-        log(LOG_ERROR, "%s\n", strerror(errno));
+        diagf(LOG_ERROR, "%s\n", strerror(errno));
         return -1;
     }
 
@@ -278,13 +276,13 @@ int dripbox_download(struct socket_t *s, char *file_path) {
             .data = socket_read_array(s, char, error_header.error_length, 0).data,
             .length = error_header.error_length,
         };
-        log(LOG_ERROR, "Dripbox error: "sv_fmt"\n", (int) sv_deconstruct(error_msg));
+        diagf(LOG_ERROR, "Dripbox error: "sv_fmt"\n", (int) sv_deconstruct(error_msg));
         return -1;
     }
 
     const struct dripbox_upload_header_t upload_header = socket_read_struct(s, struct dripbox_upload_header_t, 0);
     if (s->error != 0) {
-        log(LOG_ERROR, "%s\n", strerror(errno));
+        diagf(LOG_ERROR, "%s\n", strerror(errno));
         return -1;
     }
 
@@ -338,7 +336,7 @@ void run_inotify_event(struct socket_t *s, struct inotify_event_t inotify_event)
 
         if (event->mask >= IN_ISDIR) { event->mask %= IN_ISDIR; }
 
-        log(LOG_INFO, "File Name: "sv_fmt"\n", event->len, event->name);
+        diagf(LOG_INFO, "File Name: "sv_fmt"\n", event->len, event->name);
         const struct z_string_t fullpath = path_combine(g_sync_dir_path, (char*)event->name);
         switch (event->mask) {
         case IN_MODIFY:
@@ -383,7 +381,7 @@ void *inotify_watcher_worker(const void *args) {
 
     const int ret_value = inotify_rm_watch(watcher.inotify_fd, watcher.watcher_fd);
     if (ret_value) {
-        log(LOG_ERROR, "Inotify watch remove: %s\n", strerror(errno));
+        diagf(LOG_ERROR, "Inotify watch remove: %s\n", strerror(errno));
         return (void *) -1;
     }
 
@@ -400,13 +398,13 @@ void dripbox_delete_from_client(struct socket_t *s) {
 
     const struct z_string_t path = path_combine(g_sync_dir_path, file_name);
     if (unlink(path.data) < 0) {
-        log(LOG_ERROR, "%s\n", strerror(errno));
+        diagf(LOG_ERROR, "%s\n", strerror(errno));
         return;
     }
-    log(LOG_INFO, "Deleted "sv_fmt"\n", (int)sv_deconstruct(file_name));
+    diagf(LOG_INFO, "Deleted "sv_fmt"\n", (int)sv_deconstruct(file_name));
 }
 
-void dripbox_upload_to_client(struct socket_t *s) {
+void dripbox_handle_upload_to_client(struct socket_t *s) {
     const var upload_header = socket_read_struct(s, struct dripbox_upload_header_t, 0);
     const struct string_view_t file_name = {
         .data = socket_read_array(s, char, upload_header.file_name_length, 0).data,
@@ -418,24 +416,24 @@ void dripbox_upload_to_client(struct socket_t *s) {
 
     const uint8_t checksum = dripbox_file_checksum(path.data);
     if (checksum == server_checksum) {
-        log(LOG_INFO, "No changes in "sv_fmt" discarding\n", (int)sv_deconstruct(file_name));
+        diagf(LOG_INFO, "No changes in "sv_fmt" discarding\n", (int)sv_deconstruct(file_name));
         socket_redirect_to_file(s, "/dev/null", upload_header.payload_length);
         return;
     }
 send_file:
     if (socket_redirect_to_file(s, path.data, upload_header.payload_length) != 0) {
-        log(LOG_ERROR, "%s\n", strerror(errno));
+        diagf(LOG_ERROR, "%s\n", strerror(errno));
     }
 }
 
 void recive_message(struct socket_t *s) {
     const var msg_header = socket_read_struct(s, struct dripbox_msg_header_t, 0);
-    log(LOG_INFO, "Recieved Message %s\n", msg_type_cstr(msg_header.type));
+    diagf(LOG_INFO, "Recieved Message %s\n", msg_type_cstr(msg_header.type));
     switch (msg_header.type) {
     case MSG_NOOP:
         break;
     case MSG_UPLOAD: {
-        dripbox_upload_to_client(s);
+        dripbox_handle_upload_to_client(s);
         break;
     }
     case MSG_DELETE: {
@@ -448,14 +446,14 @@ void recive_message(struct socket_t *s) {
             .data = socket_read_array(s, char, error_header.error_length, 0).data,
             .length = error_header.error_length,
         };
-        log(LOG_ERROR, "Dripbox error: "sv_fmt"\n", (int) sv_deconstruct(error_msg));
+        diagf(LOG_ERROR, "Dripbox error: "sv_fmt"\n", (int) sv_deconstruct(error_msg));
         break;
     }
     default:
-        log(LOG_ERROR, "Type: 0x%X\n", msg_header.type);
+        diagf(LOG_ERROR, "Type: 0x%X\n", msg_header.type);
         break;
     }
-    if (s->error != 0) { log(LOG_ERROR, "%s\n", strerror(s->error)); }
+    if (s->error != 0) { diagf(LOG_ERROR, "%s\n", strerror(s->error)); }
 }
 
 bool try_recive_message(struct socket_t *s) {
@@ -474,7 +472,7 @@ int dripbox_list_server(struct socket_t *s) {
 
     socket_write(s, size_and_address(in_msg_header), 0);
     if (s->error != 0) {
-        log(LOG_ERROR, "%s\n", strerror(s->error));
+        diagf(LOG_ERROR, "%s\n", strerror(s->error));
         return -1;
     }
 
@@ -486,7 +484,7 @@ int dripbox_list_server(struct socket_t *s) {
             .data = socket_read_array(s, char, error_header.error_length, 0).data,
             .length = error_header.error_length,
         };
-        log(LOG_ERROR, "Dripbox error: "sv_fmt"\n", (int) sv_deconstruct(error_msg));
+        diagf(LOG_ERROR, "Dripbox error: "sv_fmt"\n", (int) sv_deconstruct(error_msg));
         return -1;
     }
 
@@ -498,7 +496,7 @@ int dripbox_list_server(struct socket_t *s) {
     socket_read_exactly(s, size_and_address(list_files), 0);
 
     if (s->error != 0) {
-        log(LOG_ERROR, "%s\n", strerror(errno));
+        diagf(LOG_ERROR, "%s\n", strerror(errno));
         return -1;
     }
 

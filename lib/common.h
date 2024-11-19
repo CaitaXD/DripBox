@@ -82,7 +82,7 @@ static char *timestamp() {
     return __timestamp_buffer;
 }
 
-#define log(LOG_LEVEL__, fmt__, ...)\
+#define diagf(LOG_LEVEL__, fmt__, ...)\
   ({\
     if (log_file == NULL) { log_file = stdout; }\
     var log_level = (LOG_LEVEL__);\

@@ -69,8 +69,8 @@ static errno_t socket_redirect_to_file(struct socket_t *s, const char *path, siz
             continue;
         }
         while (length > 0) {
-            const size_t left = min(length, sizeof buffer);
-            const ssize_t got = socket_read(s, left, buffer, 0);
+            const size_t len = min(length, sizeof buffer);
+            const ssize_t got = socket_read(s, len, buffer, 0);
             if (got == 0) { break; }
             if (got < 0) {
                 retval = errno;
@@ -116,14 +116,19 @@ static uint8_t dripbox_file_checksum(const char *path) {
         fclose(file);
         return -1;
     }
-    size_t length = st.st_size;
-
-    uint8_t chk = 0;
-    uint8_t buffer[1024] = {};
-    while (length > 0) {
-        const ssize_t got = fread(buffer, sizeof(uint8_t), sizeof buffer, file);
+    uint8_t buffer[1024] = {}, chk = 0;
+    size_t file_size = st.st_size;
+    while (file_size > 0) {
+        const size_t len = min(sizeof buffer, file_size);
+        const ssize_t got = fread(buffer, sizeof(uint8_t), len, file);
+        if (got == 0) {
+            break;
+        }
+        if (got < 0) {
+            diagf(LOG_ERROR, "Error reading File at %s\n", path);
+        }
         chk -= dripbox_checksum(buffer, got);
-        length -= got;
+        file_size -= got;
     }
     fclose(file);
     return chk;

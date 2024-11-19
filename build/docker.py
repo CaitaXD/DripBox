@@ -7,6 +7,7 @@ parser = ArgumentParser()
 sub_parsers = parser.add_subparsers(dest="command")
 
 run_parser = sub_parsers.add_parser("run")
+run_parser.add_argument("--clean", "-c", help="Remove old containers", action="store_true")
 run_sub_parsers = run_parser.add_subparsers(dest="mode")
 run_server_mode = run_sub_parsers.add_parser("server")
 run_client_mode = run_sub_parsers.add_parser("client")
@@ -124,11 +125,19 @@ elif args.command == "build" and args.mode == "client":
 
 elif args.command == "run" and args.mode == "server":
     container_name = args.container_name.lower().replace(" ", "-")
+    if args.clean:
+        os.system(f"cd .. && "
+                  f"docker rm -f {container_name}-server"
+                  )
     os.system(f"docker run -d --name {container_name}-{args.mode} --network bridge -t {container_name}-{args.mode}")
 
 elif args.command == "run" and args.mode == "client":
     username = args.username.lower().replace(" ", "-")
     container_name = args.container_name.lower().replace(" ", "-")
+    if args.clean:
+        os.system(f"cd .. && "
+                  f"docker rm -f {container_name}-{username}"
+                  )
     os.system(f"docker run "
               f"-d --name {container_name}-{username} "
               f"--network bridge "
