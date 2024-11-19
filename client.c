@@ -265,7 +265,6 @@ int dripbox_download(struct socket_t *s, char *file_path) {
         log(LOG_ERROR, "%s\n", strerror(s->error));
         return -1;
     }
-    uint8_t buffer[DRIPBOX_MAX_HEADER_SIZE] = {};
 
     const struct dripbox_msg_header_t out_msg_header = socket_read_struct(s, struct dripbox_msg_header_t, 0);
     if (s->error != 0) {
@@ -279,12 +278,7 @@ int dripbox_download(struct socket_t *s, char *file_path) {
             .data = socket_read_array(s, char, error_header.error_length, 0).data,
             .length = error_header.error_length,
         };
-        if (s->error != 0) {
-            log(LOG_ERROR, "%s\n", strerror(s->error));
-            printf("Dripbox error: Unknown\n");
-        } else {
-            printf("Dripbox error: "sv_fmt"\n", (int) sv_deconstruct(error_msg));
-        }
+        log(LOG_ERROR, "Dripbox error: "sv_fmt"\n", (int) sv_deconstruct(error_msg));
         return -1;
     }
 
@@ -294,28 +288,7 @@ int dripbox_download(struct socket_t *s, char *file_path) {
         return -1;
     }
 
-    ssize_t got = 0;
-    scope(FILE *file = fopen(file_path, "wb"), fclose(file)) {
-        ssize_t length = upload_header.payload_length;
-        while (length > 0) {
-            const ssize_t result = recv(s->sock_fd, buffer, DRIPBOX_MAX_HEADER_SIZE, 0);
-            if (result == 0) { break; }
-            if (result < 0) {
-                log(LOG_ERROR, "%s\n", strerror(errno));
-                got = -1;
-                break;
-            }
-            length -= result;
-            got += result;
-            if (fwrite(buffer, sizeof(uint8_t), result, file) < 0) {
-                log(LOG_ERROR, "%s\n", strerror(errno));
-                got = -1;
-                break;
-            }
-        }
-    }
-
-    return got;
+    return socket_redirect_to_file(s, file_path, upload_header.payload_length);
 }
 
 void dripbox_list_client(const struct string_view_t sync_dir_path) {
@@ -469,6 +442,15 @@ void recive_message(struct socket_t *s) {
         dripbox_delete_from_client(s);
         break;
     }
+    case MSG_ERROR: {
+        const var error_header = socket_read_struct(s, struct dripbox_error_header_t, 0);
+        const struct string_view_t error_msg = {
+            .data = socket_read_array(s, char, error_header.error_length, 0).data,
+            .length = error_header.error_length,
+        };
+        log(LOG_ERROR, "Dripbox error: "sv_fmt"\n", (int) sv_deconstruct(error_msg));
+        break;
+    }
     default:
         log(LOG_ERROR, "Type: 0x%X\n", msg_header.type);
         break;
@@ -496,38 +478,23 @@ int dripbox_list_server(struct socket_t *s) {
         return -1;
     }
 
-    uint8_t buffer[DRIPBOX_MAX_HEADER_SIZE] = {};
+    const var out_msg_header = socket_read_struct(s, struct dripbox_msg_header_t, 0);
 
-    struct dripbox_msg_header_t *out_msg_header = (void *) buffer;
-    if (socket_read_exactly(s, size_and_address(*out_msg_header), 0) < 0) {
-        log(LOG_ERROR, "%s\n", strerror(errno));
+    if (out_msg_header.type == MSG_ERROR) {
+        const var error_header = socket_read_struct(s, struct dripbox_error_header_t, 0);
+        const struct string_view_t error_msg = {
+            .data = socket_read_array(s, char, error_header.error_length, 0).data,
+            .length = error_header.error_length,
+        };
+        log(LOG_ERROR, "Dripbox error: "sv_fmt"\n", (int) sv_deconstruct(error_msg));
         return -1;
     }
 
-    if (out_msg_header->type == MSG_ERROR) {
-        var error_header = *(struct dripbox_error_header_t *) (buffer + sizeof *out_msg_header);
-        uint8_t *error_msg_buffer = buffer + sizeof error_header;
-
-        socket_read_exactly(s, size_and_address(error_header), 0);
-        socket_read_exactly(s, error_header.error_length, error_msg_buffer, 0);
-        if (s->error != 0) {
-            log(LOG_ERROR, "%s\n", strerror(s->error));
-            printf("Dripbox error: Unknown\n");
-        } else {
-            printf("Dripbox error: "sv_fmt"\n", (int) error_header.error_length, (char *) error_msg_buffer);
-        }
-        return -1;
-    }
-
-    var upload_header = *(struct dripbox_upload_header_t *) (buffer + sizeof *out_msg_header);
-
-    socket_read_exactly(s, size_and_address(upload_header), 0);
+    const var upload_header = socket_read_struct(s, struct dripbox_upload_header_t, 0);
 
     int n = upload_header.payload_length;
-
     struct dripbox_file_times_t list_files[n];
     memset(list_files, 0, n * sizeof(struct dripbox_file_times_t));
-
     socket_read_exactly(s, size_and_address(list_files), 0);
 
     if (s->error != 0) {

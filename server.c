@@ -36,15 +36,13 @@ const struct z_string_t g_userdata_dir = (struct z_string_t){
     .length = sizeof "userdata/" - 1,
 };
 
-_Thread_local static uint8_t tls_dripbox_buffer[DRIPBOX_MAX_HEADER_SIZE] = {};
+static void dripbox_handle_login(UsersHashTable *hash_table, struct socket_t client);
 
-static void dripbox_handle_login(UsersHashTable *hash_table, struct socket_t client, uint8_t *buffer);
+static void dripbox_handle_upload(UsersHashTable hash_table, struct user_t user);
 
-static void dripbox_handle_upload(UsersHashTable hash_table, struct user_t user, struct socket_t client);
+static void dripbox_handle_download(struct user_t user);
 
-static void dripbox_handle_download(struct user_t user, struct socket_t client);
-
-static void dripbox_handle_delete(UsersHashTable hash_table, struct user_t user, struct socket_t client);
+static void dripbox_handle_delete(UsersHashTable hash_table, struct user_t user);
 
 static void handle_massage(UsersHashTable *hash_table, struct user_t user);
 
@@ -52,7 +50,7 @@ static void *incoming_connections_worker(const void *arg);
 
 static void *client_connections_worker(const void *arg);
 
-static void dripbox_handle_list(struct user_t user, struct socket_t client, uint8_t *buffer);
+static void dripbox_handle_list(struct user_t user);
 
 static int server_main() {
     signal(SIGPIPE, SIG_IGN);
@@ -84,28 +82,14 @@ static int server_main() {
 
 pthread_mutex_t g_users_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-static void dripbox_handle_login(UsersHashTable *hash_table, struct socket_t client, uint8_t *buffer) {
-    const struct dripbox_login_header_t *login_header = (void *) buffer;
-    ssize_t got = socket_read_exactly(&client, sizeof(struct dripbox_login_header_t), buffer, 0);
-    if (got == 0) { return; }
-    if (got < 0) {
-        log(LOG_ERROR, "%s\n", strerror(errno));
-        return;
-    }
-
+static void dripbox_handle_login(UsersHashTable *hash_table, struct socket_t client) {
+    const var login_header = socket_read_struct(&client, struct dripbox_login_header_t, 0);
     const struct string_view_t username = {
-        .data = (char *) tls_dripbox_buffer + sizeof *login_header,
-        .length = login_header->length,
+        .data = socket_read_array(&client, char, login_header.length, 0).data,
+        .length = login_header.length,
     };
 
-    got = socket_read_exactly(&client, sv_deconstruct(username), 0);
-    if (got < 0) {
-        log(LOG_INFO, "%s\n", strerror(errno));
-        return;
-    }
-
     const struct allocator_t *a = hash_set_allocator(*hash_table);
-
     const struct user_t _user = {
         .username = (struct string_view_t){
             .data = cstr_sv(username, a),
@@ -114,39 +98,39 @@ static void dripbox_handle_login(UsersHashTable *hash_table, struct socket_t cli
         .socket = client,
     };
 
-    const char *ip = socket_address_to_cstr(client.addr, a);
-    hash_table_update(hash_table, ip, _user);
+    const char *adress_cstr = socket_address_to_cstr(client.addr, a);
+    hash_table_update(hash_table, adress_cstr, _user);
 
     const struct z_string_t path = path_combine(g_userdata_dir, username);
-    struct stat st = {};
-    if (stat(g_userdata_dir.data, &st) < 0) {
+    if (stat(g_userdata_dir.data, &(struct stat){}) < 0) {
         mkdir(g_userdata_dir.data, S_IRWXU | S_IRWXG | S_IRWXO);
     }
-    if (stat(path.data, &st) < 0) {
+    if (stat(path.data, &(struct stat){}) < 0) {
         mkdir(path.data, S_IRWXU | S_IRWXG | S_IRWXO);
     }
 }
 
-static void dripbox_handle_upload(const UsersHashTable hash_table, const struct user_t user, struct socket_t client) {
-    const var upload_header = socket_read_struct(&client, struct dripbox_upload_header_t, 0);
+static void dripbox_handle_upload(const UsersHashTable hash_table, struct user_t user) {
+    struct socket_t *client = &user.socket;
+    const var upload_header = socket_read_struct(client, struct dripbox_upload_header_t, 0);
     const struct string_view_t file_name = {
-        .data = socket_read_array(&client, char, upload_header.file_name_length, 0).data,
+        .data = socket_read_array(client, char, upload_header.file_name_length, 0).data,
         .length = upload_header.file_name_length,
     };
-    uint8_t client_checksum = socket_read_struct(&client, uint8_t, 0);
+    uint8_t client_checksum = socket_read_struct(client, uint8_t, 0);
     const struct string_view_t username = user.username;
     const struct z_string_t path = path_combine(g_userdata_dir, username, file_name);
 
     if (stat(path.data, &(struct stat){}) < 0) { goto upload_file; }
     if (dripbox_file_checksum(path.data) == client_checksum) {
         log(LOG_INFO, "No changes in "sv_fmt" discarding\n", (int)sv_deconstruct(file_name));
-        socket_redirect_to_file(&client, "/dev/null", upload_header.payload_length);
+        socket_redirect_to_file(client, "/dev/null", upload_header.payload_length);
         return;
     }
 upload_file:
-    socket_redirect_to_file(&client, path.data, upload_header.payload_length);
-    if (client.error != 0) {
-        log(LOG_INFO, "%s\n", strerror(client.error));
+    socket_redirect_to_file(client, path.data, upload_header.payload_length);
+    if (client->error != 0) {
+        log(LOG_INFO, "%s\n", strerror(client->error));
         return;
     }
 
@@ -186,17 +170,18 @@ upload_file:
     }
 }
 
-void dripbox_handle_download(const struct user_t user, struct socket_t client) {
+void dripbox_handle_download(struct user_t user) {
+    struct socket_t *client = &user.socket;
     const struct dripbox_download_header_t download_header = socket_read_struct(
-        &client, struct dripbox_download_header_t, 0
+        client, struct dripbox_download_header_t, 0
     );
     const struct string_view_t file_name = (struct string_view_t){
-        .data = socket_read_array(&client, char, download_header.file_name_length, 0).data,
+        .data = socket_read_array(client, char, download_header.file_name_length, 0).data,
         .length = download_header.file_name_length,
     };
 
-    if (client.error != 0) {
-        log(LOG_ERROR, "%s\n", strerror(client.error));
+    if (client->error != 0) {
+        log(LOG_ERROR, "%s\n", strerror(client->error));
         return;
     }
 
@@ -217,11 +202,11 @@ void dripbox_handle_download(const struct user_t user, struct socket_t client) {
             .error_length = sv_error.length,
         };
 
-        socket_write(&client, size_and_address(msg_header), 0);
-        socket_write(&client, size_and_address(error_header), 0);
-        socket_write(&client, sv_deconstruct(sv_error), 0);
-        if (client.error != 0) {
-            log(LOG_ERROR, "%s\n", strerror(client.error));
+        socket_write(client, size_and_address(msg_header), 0);
+        socket_write(client, size_and_address(error_header), 0);
+        socket_write(client, sv_deconstruct(sv_error), 0);
+        if (client->error != 0) {
+            log(LOG_ERROR, "%s\n", strerror(client->error));
         }
         return;
     }
@@ -242,27 +227,28 @@ void dripbox_handle_download(const struct user_t user, struct socket_t client) {
             .payload_length = st.st_size,
         };
 
-        socket_write(&client, size_and_address(msg_header), 0);
-        socket_write(&client, size_and_address(upload_header), 0);
-        socket_write(&client, sv_deconstruct(file_name), 0);
-        socket_write_file(&client, file, st.st_size);
-        if (client.error != 0) {
+        socket_write(client, size_and_address(msg_header), 0);
+        socket_write(client, size_and_address(upload_header), 0);
+        socket_write(client, sv_deconstruct(file_name), 0);
+        socket_write_file(client, file, st.st_size);
+        if (client->error != 0) {
             log(LOG_ERROR, "%s\n", strerror(errno));
         }
     }
 }
 
-void dripbox_handle_delete(const UsersHashTable hash_table, const struct user_t user, struct socket_t client) {
-    var delete_header = socket_read_struct(&client, struct dripbox_delete_header_t, 0);
+void dripbox_handle_delete(const UsersHashTable hash_table, struct user_t user) {
+    struct socket_t *client = &user.socket;
+    var delete_header = socket_read_struct(client, struct dripbox_delete_header_t, 0);
     const struct string_view_t file_name = {
-        .data = socket_read_array(&client, char, delete_header.file_name_length, 0).data,
+        .data = socket_read_array(client, char, delete_header.file_name_length, 0).data,
         .length = delete_header.file_name_length,
     };
     const struct string_view_t username = user.username;
     const struct z_string_t path = path_combine(g_userdata_dir, username, file_name);
 
-    if (client.error != 0) {
-        log(LOG_ERROR, "%s\n", strerror(client.error));
+    if (client->error != 0) {
+        log(LOG_ERROR, "%s\n", strerror(client->error));
         return;
     }
 
@@ -279,11 +265,11 @@ void dripbox_handle_delete(const UsersHashTable hash_table, const struct user_t 
             .error_length = sv_error.length,
         };
 
-        socket_write(&client, size_and_address(msg_header), 0);
-        socket_write(&client, size_and_address(error_header), 0);
-        socket_write(&client, sv_deconstruct(sv_error), 0);
-        if (client.error != 0) {
-            log(LOG_ERROR, "%s\n", strerror(client.error));
+        socket_write(client, size_and_address(msg_header), 0);
+        socket_write(client, size_and_address(error_header), 0);
+        socket_write(client, sv_deconstruct(sv_error), 0);
+        if (client->error != 0) {
+            log(LOG_ERROR, "%s\n", strerror(client->error));
         }
         return;
     }
@@ -320,45 +306,38 @@ void dripbox_handle_delete(const UsersHashTable hash_table, const struct user_t 
 }
 
 static void handle_massage(UsersHashTable *hash_table, const struct user_t user) {
-    memset(tls_dripbox_buffer, 0, sizeof tls_dripbox_buffer);
     struct socket_t client = user.socket;
-    const struct dripbox_msg_header_t *msg_header = (void *) tls_dripbox_buffer;
-
-    const ssize_t got = socket_read_exactly(&client, size_and_address(*msg_header), 0);
-    if (got == 0) { return; }
-    if (got < 0) {
-        log(LOG_INFO, "%s\n", strerror(errno));
-        return;
-    }
-
-    uint8_t *buffer = tls_dripbox_buffer + sizeof *msg_header;
-    const char *msg_type = msg_type_cstr(msg_header->type);
-    log(LOG_INFO, "Message Received\nVersion: %d\nType: %s\n", msg_header->version, msg_type);
-    switch (msg_header->type) {
-    case MSG_NOOP: { return; }
+    const var msg_header = socket_read_struct(&client, struct dripbox_msg_header_t, 0);
+    const char *msg_type = msg_type_cstr(msg_header.type);
+    log(LOG_INFO, "Received Message %s\n", msg_type);
+    switch (msg_header.type) {
+    case MSG_NOOP: break;
     case MSG_LOGIN: {
-        dripbox_handle_login(hash_table, client, buffer);
+        dripbox_handle_login(hash_table, client);
         break;
     }
     case MSG_UPLOAD: {
-        dripbox_handle_upload(*hash_table, user, client);
+        dripbox_handle_upload(*hash_table, user);
         break;
     }
     case MSG_DOWNLOAD: {
-        dripbox_handle_download(user, client);
+        dripbox_handle_download(user);
         break;
     }
     case MSG_DELETE: {
-        dripbox_handle_delete(*hash_table, user, client);
+        dripbox_handle_delete(*hash_table, user);
         break;
     }
     case MSG_LIST: {
-        dripbox_handle_list(user, client, buffer);
+        dripbox_handle_list(user);
         break;
     }
     default:
-        log(LOG_INFO, "Invalid Message Type\n");
+        log(LOG_INFO, "Type: 0x%X\n", msg_header.type);
         break;
+    }
+    if (client.error != 0) {
+        log(LOG_ERROR, "%s\n", strerror(client.error));
     }
 }
 
@@ -373,8 +352,7 @@ void *incoming_connections_worker(const void *arg) {
         struct socket_t client = {};
         while (tcp_server_incoming_next(listener, &client, &addr)) {
             scope(pthread_mutex_lock(&g_users_mutex), pthread_mutex_unlock(&g_users_mutex)) {
-                memset(tls_dripbox_buffer, 0, sizeof tls_dripbox_buffer);
-                handle_massage(context->hash_table, (struct user_t){.socket = client});
+                handle_massage(context->hash_table, (struct user_t) { .socket = client });
             }
         }
     }
@@ -415,7 +393,7 @@ int scandir_filters(const struct dirent *name) {
     }
 }
 
-void dripbox_handle_list(const struct user_t user, struct socket_t client, uint8_t *buffer) {
+void dripbox_handle_list(struct user_t user) {
     struct dirent **namelist;
 
     const struct z_string_t path_client = path_combine(g_userdata_dir, user.username);
@@ -457,7 +435,8 @@ void dripbox_handle_list(const struct user_t user, struct socket_t client, uint8
         memcpy(files_list[n].name, file_path.data, strlen(file_path.data) + 1);
     }
 
-    socket_write(&client, size_and_address(msg_header), 0);
-    socket_write(&client, size_and_address(upload_header), 0);
-    socket_write(&client, size_and_address(files_list), 0);
+    struct socket_t *client = &user.socket;
+    socket_write(client, size_and_address(msg_header), 0);
+    socket_write(client, size_and_address(upload_header), 0);
+    socket_write(client, size_and_address(files_list), 0);
 }

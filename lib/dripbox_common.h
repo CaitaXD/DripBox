@@ -22,8 +22,6 @@ struct dripbox_file_times_t {
     time_t mtime;
 } __attribute__((packed));
 
-enum { DRIPBOX_MAX_HEADER_SIZE = 4096 };
-
 struct dripbox_msg_header_t {
     uint8_t version;
     uint8_t type;
@@ -64,20 +62,18 @@ typedef int errno_t;
 
 static errno_t socket_redirect_to_file(struct socket_t *s, const char *path, size_t length) {
     errno_t retval = 0;
+    uint8_t buffer[1024] = {};
     scope(FILE *file = fopen(path, "wb"), file && fclose(file)) {
         if (file == NULL) {
             retval = errno;
             continue;
         }
-
-        enum { BUFFER_SIZE = 256 };
-        uint8_t buffer[BUFFER_SIZE] = {};
-
         while (length > 0) {
-            const ssize_t got = recv(s->sock_fd, buffer, min(length, BUFFER_SIZE), 0);
+            const size_t left = min(length, sizeof buffer);
+            const ssize_t got = socket_read(s, left, buffer, 0);
             if (got == 0) { break; }
             if (got < 0) {
-                retval = s->error = errno;
+                retval = errno;
                 break;
             }
             length -= got;
@@ -95,10 +91,10 @@ static const char *msg_type_cstr(const enum msg_type msg_type) {
     case MSG_UPLOAD: return "Upload";
     case MSG_DOWNLOAD: return "Download";
     case MSG_LOGIN: return "Login";
-    case MSG_NOOP: return "NOOP";
+    case MSG_NOOP: return "Noop";
     case MSG_DELETE: return "Delete";
     case MSG_LIST: return "List";
-    default: return "INVALID MESSAGE";
+    default: return "Invalid Message";
     }
     unreachable();
 }
