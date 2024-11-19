@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <sys/stat.h>
 
 enum msg_type {\
     MSG_NOOP = 0,
@@ -55,61 +56,81 @@ char *mode = NULL;
 
 enum { MODE_INVALID, MODE_CLIENT, MODE_SERVER } mode_type = MODE_INVALID;
 
+static uint8_t dripbox_checksum(const uint8_t *ptr, size_t sz);
+
+static uint8_t dripbox_file_checksum(const char *path);
+
 typedef int errno_t;
 
-static errno_t socket_read_to_file(const struct socket_t *s, const char *path, size_t length) {
-    errno_t ret = 0;
-    scope(FILE *file = fopen(path, "wb"), fclose(file)) {
+static errno_t socket_redirect_to_file(struct socket_t *s, const char *path, size_t length) {
+    errno_t retval = 0;
+    scope(FILE *file = fopen(path, "wb"), file && fclose(file)) {
         if (file == NULL) {
-            ret = errno;
-            break;
+            retval = errno;
+            continue;
         }
+
         enum { BUFFER_SIZE = 256 };
         uint8_t buffer[BUFFER_SIZE] = {};
 
         while (length > 0) {
-            const ssize_t got = recv(s->sock_fd, buffer, BUFFER_SIZE, 0);
+            const ssize_t got = recv(s->sock_fd, buffer, min(length, BUFFER_SIZE), 0);
             if (got == 0) { break; }
             if (got < 0) {
-                ret = errno;
+                retval = s->error = errno;
                 break;
             }
             length -= got;
             if (fwrite(buffer, sizeof(uint8_t), got, file) < 0) {
-                ret = errno;
+                retval = errno;
                 break;
             }
         }
     }
-    return ret;
+    return retval;
 }
 
 static const char *msg_type_cstr(const enum msg_type msg_type) {
-    const char *str = NULL;
     switch (msg_type) {
-    case MSG_UPLOAD:
-        str = "Upload";
-        break;
-    case MSG_DOWNLOAD:
-        str = "Download";
-        break;
-    case MSG_LOGIN:
-        str = "Login";
-        break;
-    case MSG_NOOP:
-        str = "NOOP";
-        break;
-    case MSG_DELETE:
-        str = "Delete";
-        break;
-    case MSG_LIST:
-	str = "List";
-	break;
-    default:
-        str = "INVALID MESSAGE";
-        break;
+    case MSG_UPLOAD: return "Upload";
+    case MSG_DOWNLOAD: return "Download";
+    case MSG_LOGIN: return "Login";
+    case MSG_NOOP: return "NOOP";
+    case MSG_DELETE: return "Delete";
+    case MSG_LIST: return "List";
+    default: return "INVALID MESSAGE";
     }
-    return str;
+    unreachable();
+}
+
+uint8_t dripbox_checksum(const uint8_t *ptr, size_t sz) {
+    uint8_t chk = 0;
+    while (sz-- != 0)
+        chk -= *ptr++;
+    return chk;
+}
+
+static uint8_t dripbox_file_checksum(const char *path) {
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        return -1;
+    }
+    struct stat st = {};
+    if (fstat(fileno(file), &st) < 0) {
+        fclose(file);
+        return -1;
+    }
+    size_t length = st.st_size;
+
+    uint8_t chk = 0;
+    uint8_t buffer[1024] = {};
+    while (length > 0) {
+        const ssize_t got = fread(buffer, sizeof(uint8_t), sizeof buffer, file);
+        chk -= dripbox_checksum(buffer, got);
+        length -= got;
+    }
+    fclose(file);
+    return chk;
 }
 
 #endif //DRIPBOX_COMMON_H

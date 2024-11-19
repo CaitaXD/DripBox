@@ -14,6 +14,7 @@ struct string_view_t {
 };
 
 #define sv_deconstruct(sv__) (sv__).length, (sv__).data
+#define sv_fmt "%.*s"
 
 struct readonly_span_t {
     size_t length;

@@ -80,6 +80,11 @@ struct dynamic_array_header_t {
         void_expression();\
     })
 
+DYNAMIC_ARRAY_API void dynamic_array_clear(void *array);
+
+void dynamic_array_clear(void *array) {
+    dynamic_array_length(array) = 0;
+}
 
 static struct dynamic_array_header_t *_dynamic_array_with_capacity_impl(
     const size_t element_size, const size_t capacity,
@@ -117,7 +122,7 @@ static void _dynamic_array_reserve_impl(struct dynamic_array_header_t **buffer, 
 }
 
 static void *_dynamic_array_shift_impl(struct dynamic_array_header_t **buffer, const size_t element_size,
-                                  const size_t index) {
+                                       const size_t index) {
     assert(index <= (*buffer)->length && "Index out of bounds");
 
     _dynamic_array_reserve_impl(buffer, element_size, (*buffer)->length + 1);
@@ -136,7 +141,7 @@ static void *_dynamic_array_shift_impl(struct dynamic_array_header_t **buffer, c
 }
 
 static void _dynamic_array_remove_impl(struct dynamic_array_header_t **buffer, const size_t index,
-                                     const size_t element_size) {
+                                       const size_t element_size) {
     assert(index < (*buffer)->length && "Index out of bounds");
 
     struct dynamic_array_header_t *buffer_ = *buffer;

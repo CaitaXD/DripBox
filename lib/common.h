@@ -31,14 +31,9 @@
     __max_a > __max_b ? __max_a : __max_b;\
 })
 
-#define max3(a_, b_, c_) max2(a_, max2(b_, c_))
-
 #define MACRO_SELECT1(_1, NAME, ...) NAME
 #define MACRO_SELECT2(_1, _2, NAME, ...) NAME
 #define MACRO_SELECT3(_1, _2, _3, NAME, ...) NAME
-
-#define max(...) MACRO_SELECT3(__VA_ARGS__, max3, max2, identity)(__VA_ARGS__)
-#define min(...) MACRO_SELECT2(__VA_ARGS__, min2, identity)(__VA_ARGS__)
 
 #define clamp(value__, min__, max__) min2(max2((value__), (min__)), (max__))
 
@@ -59,7 +54,7 @@
 
 #define finalizer(expression__) scoped_expression(, expression__)
 
-#define ARRAY_LITERAL(size__, ...) (uint8_t[(size__)]){ __VA_ARGS__ }
+#define ARRAY_LITERAL(size__, ...) ((uint8_t[(size__)]){ __VA_ARGS__ })
 
 #define unreachable() __builtin_unreachable()
 
@@ -162,12 +157,39 @@ static bool string_equals(const void *a, const void *b) {
 #define MAP5(fn, a, b, c, d, e) fn(a), fn(b), fn(c), fn(d), fn(e)
 #define MAP6(fn, a, b, c, d, e, f) fn(a), fn(b), fn(c), fn(d), fn(e) ,fn(f)
 
+#define FOLD0(fn, seed) seed
+#define FOLD1(fn, seed, a) fn(seed, a)
+#define FOLD2(fn, seed, a, b) fn(fn(seed, a), b)
+#define FOLD3(fn, seed, a, b, c) fn(fn(fn(seed, a), b), c)
+#define FOLD4(fn, seed, a, b, c, d) fn(fn(fn(fn(seed, a), b), c), d)
+#define FOLD5(fn, seed, a, b, c, d, e) fn(fn(fn(fn(fn(seed, a), b), c), d), e)
+#define FOLD6(fn, seed, a, b, c, d, e, f) fn(fn(fn(fn(fn(fn(seed, a), b), c), d), e))
+
+#define FOLDR0(fn, seed) seed
+#define FOLDR1(fn, seed, a) fn(seed, a)
+#define FOLDR2(fn, seed, a, b) fn(seed, fn(a, b))
+#define FOLDR3(fn, seed, a, b, c) fn(seed, fn(a, fn(b, c)))
+#define FOLDR4(fn, seed, a, b, c, d) fn(seed, fn(a, fn(b, fn(c, d))))
+#define FOLDR5(fn, seed, a, b, c, d, e) fn(seed, fn(a, fn(b, fn(c, fn(d, e)))))
+#define FOLDR6(fn, seed, a, b, c, d, e, f) fn(seed, fn(a, fn(b, fn(c, fn(d, fn(e, f))))))
+
 #define ARGS_COUNT_(dummy, x6, x5, x4, x3, x2, x1, x0, ...) x0
 #define ARGS_COUNT(...) ARGS_COUNT_(dummy, ##__VA_ARGS__, 6, 5, 4, 3, 2, 1, 0)
 
 #define MAP__(fn, n, ...) MAP##n(fn, __VA_ARGS__)
 #define MAP_(fn, n, ...) MAP__(fn, n, __VA_ARGS__)
 #define MAP(fn, ...) MAP_(fn, ARGS_COUNT(__VA_ARGS__), __VA_ARGS__)
+
+#define FOLD__(fn, seed, n, ...) FOLD##n(fn, seed, __VA_ARGS__)
+#define FOLD_(fn, seed, n, ...) FOLD__(fn, seed, n, __VA_ARGS__)
+#define FOLD(fn, seed, ...) FOLD_(fn, seed, ARGS_COUNT(__VA_ARGS__), __VA_ARGS__)
+
+#define FOLDR__(fn, seed, n, ...) FOLDR##n(fn, seed, __VA_ARGS__)
+#define FOLDR_(fn, seed, n, ...) FOLDR__(fn, seed, n, __VA_ARGS__)
+#define FOLDR(fn, seed, ...) FOLDR_(fn, seed, ARGS_COUNT(__VA_ARGS__), __VA_ARGS__)
+
+#define max(...) FOLD(max2, __VA_ARGS__)
+#define min(...) FOLD(min2, __VA_ARGS__)
 
 struct iterator_t {
     bool (*next)(struct iterator_t *iterator);

@@ -1,9 +1,9 @@
-FROM gcc:latest
+FROM gcc:11
 RUN mkdir /app
 COPY .. /app
 WORKDIR /app
 #RUN apt update && apt install -y valgrind
-RUN gcc --debug main.c -I ./lib -o bin/dripbox
+RUN gcc --debug main.c -I ./lib -o bin/dripbox -fsanitize=address
 RUN chmod +x bin/dripbox
 EXPOSE 25565-40000/udp 25565-40000/tcp
 WORKDIR /app/bin

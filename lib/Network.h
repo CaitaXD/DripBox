@@ -110,7 +110,8 @@ NETWORK_API ssize_t socket_read_exactly(struct socket_t *socket, size_t length, 
 
 NETWORK_API ssize_t socket_read(struct socket_t *socket, size_t length, uint8_t buffer[static length], int flags);
 
-NETWORK_API ssize_t socket_write(struct socket_t *socket, size_t length, uint8_t buffer[static length], int flags);
+NETWORK_API ssize_t socket_write(struct socket_t *socket, size_t length, const uint8_t buffer[static length],
+                                 int flags);
 
 NETWORK_API ssize_t socket_write_file(struct socket_t *socket, FILE *file, size_t lenght);
 
@@ -309,7 +310,8 @@ ssize_t socket_read(struct socket_t *socket, const size_t length, uint8_t buffer
     return length;
 }
 
-ssize_t socket_write(struct socket_t *socket, const size_t length, uint8_t buffer[static length], const int flags) {
+ssize_t socket_write(struct socket_t *socket, const size_t length, const uint8_t buffer[static length],
+                     const int flags) {
     if (socket->error != 0) { return -1; }
     if (send(socket->sock_fd, buffer, length, flags) < 0) {
         socket->error = errno;
@@ -337,5 +339,27 @@ ssize_t socket_write_file(struct socket_t *socket, FILE *file, const size_t leng
 
     return lenght;
 }
+
+static void *_socket_read_struct_impl(struct socket_t *socket, const size_t length, uint8_t buffer[length],
+                                      const int flags) {
+    socket_read_exactly(socket, length, buffer, flags);
+    return buffer;
+}
+
+#define socket_read_struct(socket__, type__, flags__) \
+    (*(type__*)_socket_read_struct_impl(socket__, sizeof(type__), (void*)((type__[1]){}), (flags__)))
+
+#define socket_read_array(socket__, type__, length__, flags__) \
+    ({\
+        struct { type__ data[length__]; } __array;\
+        socket_read_exactly(socket__, size_and_address(__array), flags__);\
+        __array;\
+    })
+
+#define socket_write_struct(socket__, struct__, flags__) \
+    ({\
+        var __struct = (struct__);\
+        socket_write(socket__, size_and_address(__struct), flags__);\
+    })
 
 #endif //NETWORK_H
