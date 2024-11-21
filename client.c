@@ -318,7 +318,7 @@ void dripbox_client_list(const struct string_view sync_dir_path) {
             const struct tm *tm_atime = localtime(&statbuf.st_atime);
             const struct tm *tm_mtime = localtime(&statbuf.st_mtime);
 
-            printf(file_times_fmt"\n",
+            printf(dripbox_file_stat_fmt"\n",
                 namelist[n]->d_name,
                 tm_long_data_deconstruct(tm_ctime),
                 tm_long_data_deconstruct(tm_atime),
@@ -483,7 +483,6 @@ int dripbox_client_list_server(struct socket *s, const bool update_client_list) 
     socket_read_exactly(s, size_and_address(server_stats), 0);
 
     if(server_stats_count > 0) {
-        diagf(LOG_INFO, "Received %d files\n", server_stats_count);
         printf("\n\n==== Client\'s server files ====\n\n");
     }
 
@@ -498,7 +497,7 @@ int dripbox_client_list_server(struct socket *s, const bool update_client_list) 
         const struct tm *tm_atime = localtime(&atime);
         const struct tm *tm_mtime = localtime(&mtime);
 
-        printf(file_times_fmt"\n", name,
+        printf(dripbox_file_stat_fmt"\n", name,
             tm_long_data_deconstruct(tm_ctime),
             tm_long_data_deconstruct(tm_atime),
             tm_long_data_deconstruct(tm_mtime));
@@ -552,11 +551,11 @@ int dripbox_client_list_server(struct socket *s, const bool update_client_list) 
 
         // Download = { file | file ∈ Server \ Client }
         var to_download = array_set_difference(server_set, client_set, set_equals, stackalloc);
-        diagf(LOG_INFO, "To Download: %ld\n", array_length(to_download));
+        diagf(LOG_INFO, "Downloading %ld files\n", array_length(to_download));
 
         // Delete = { file | file ∈ (Client ↦ file_name) \ (Server ↦ file_name) }
         var to_delete = array_set_difference(client_set, server_set, set_name_equals, stackalloc);
-        diagf(LOG_INFO, "To Delete: %ld\n", array_length(to_delete));
+        diagf(LOG_INFO, "Deleting %ld files\n", array_length(to_delete));
 
         for (int i = 0; i < array_length(to_delete); i++) {
             struct set_item item = to_delete[i];

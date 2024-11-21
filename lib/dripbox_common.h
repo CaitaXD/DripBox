@@ -250,10 +250,12 @@ static void dripbox_send_error(struct socket *s, const int errnum, const char *c
     ((tm__)->tm_min),\
     ((tm__)->tm_sec)
 
-#define file_times_fmt \
-    "Name: %s \n"\
-    "C time: "tm_long_datefmt"\n"\
-    "A time: "tm_long_datefmt"\n"\
-    "M time: "tm_long_datefmt"\n"
+#define dripbox_file_stat_fmt \
+    "{\n"\
+    "  Name: %s,\n"\
+    "  ctime: "tm_long_datefmt",\n"\
+    "  atime: "tm_long_datefmt",\n"\
+    "  mtime: "tm_long_datefmt"\n"\
+    "}\n"
 
 #endif //DRIPBOX_COMMON_H
