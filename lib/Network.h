@@ -19,101 +19,107 @@
 #   define NETWORK_API static inline
 #endif
 
-struct socket_address_t {
+struct socket_address {
     struct sockaddr *sa;
     socklen_t addr_len;
 };
 
-struct tcp_listener_t {
+struct tcp_listener {
     int sock_fd;
     int last_error;
-    struct socket_address_t *addr;
+    struct socket_address *addr;
     int domain;
 };
 
-struct socket_t {
+struct socket {
     int sock_fd;
     int error;
-    struct socket_address_t *addr;
+    struct socket_address *addr;
 };
 
 /// Creates a new tcp listener
 /// @param domain The domain to use
 /// @return The new tcp listener
-NETWORK_API struct tcp_listener_t tcp_listener_new(int domain);
+NETWORK_API struct tcp_listener tcp_listener_new(int domain);
 
 /// Binds the tcp listener to the given address
 /// @remark If error != 0, early returns false
 /// @param listener The tcp listener to bind
 /// @param addr The address to bind to
 /// @return True if the bind was successful, false otherwise
-NETWORK_API bool tcp_listener_bind(struct tcp_listener_t *listener, struct socket_address_t *addr);
+NETWORK_API bool tcp_listener_bind(struct tcp_listener *listener, struct socket_address *addr);
 
 /// Listens for incoming connections on the tcp listener
 /// @remark If error != 0, early returns false
 /// @param listener The tcp listener to listen on
 /// @param backlog Maximum number of pending connections
 /// @return True if the listen was successful, false otherwise
-NETWORK_API bool tcp_listener_listen(struct tcp_listener_t *listener, int backlog);
+NETWORK_API bool tcp_listener_listen(struct tcp_listener *listener, int backlog);
 
 /// Closes the tcp listener
 /// @remark If error != 0, early returns false
 /// @remark fd is set to -1 if the closed successfully
 /// @param listener The tcp listener to close
 /// @return True if closed successfully, false otherwise
-NETWORK_API bool tcp_listener_close(struct tcp_listener_t *listener);
+NETWORK_API bool tcp_listener_close(struct tcp_listener *listener);
 
 /// Accepts a connection on the tcp listener
 /// @remark If error != 0, early returns false
 /// @param listener The tcp listener to accept on
 /// @param addr The address of the client
 /// @return The accepted socket
-NETWORK_API struct socket_t tcp_listener_accept(const struct tcp_listener_t *listener,
-                                                struct socket_address_t *addr);
+NETWORK_API struct socket tcp_listener_accept(const struct tcp_listener *listener,
+                                              struct socket_address *addr);
 
 /// Connects to a remote address
 /// @remark If error != 0, early returns false
 /// @param client The socket to connect
 /// @param addr The address to connect to
 /// @return True if the connection was successful, false otherwise
-NETWORK_API bool tcp_client_connect(struct socket_t *client, struct socket_address_t *addr);
+NETWORK_API bool tcp_client_connect(struct socket *client, struct socket_address *addr);
 
 /// Closes the socket
 /// @remark If error != 0, early returns false
 /// @remark fd is set to -1 if the closed successfully
 /// @param s The socket to close
 /// @return True if closed successfully, false otherwise
-NETWORK_API bool socket_close(struct socket_t *s);
+NETWORK_API bool socket_close(struct socket *s);
 
 /// Converts a socket address to a string
 /// @param addr The address to convert
 /// @param a The allocator to use
 /// @return The string representation of the address
-NETWORK_API const char *socket_address_to_cstr(const struct socket_address_t *addr, const struct allocator_t *a);
+NETWORK_API const char *socket_address_to_cstr(const struct socket_address *addr, const struct allocator *a);
+
+/// Converts a socket address to a string in ipv4 format
+/// @remark This function is only valid for AF_INET addresses
+/// @param addr The address to convert
+/// @return The string representation of the address
+NETWORK_API const char *ipv4_cstr(const struct socket_address *addr);
 
 /// Waits for the next incoming connection on the tcp listener
 /// @param listener The tcp listener to accept on
 /// @param client The socket to accept the connection on
 /// @param addr The address of the client
 /// @return True if an incoming connection was made successfully, false otherwise
-NETWORK_API bool tcp_server_incoming_next(const struct tcp_listener_t *listener, struct socket_t *client,
-                                          struct socket_address_t *addr);
+NETWORK_API bool tcp_server_incoming_next(const struct tcp_listener *listener, struct socket *client,
+                                          struct socket_address *addr);
 
-NETWORK_API struct socket_t socket_new(int domain, int type, int protocol);
+NETWORK_API struct socket socket_new(int domain, int type, int protocol);
 
-NETWORK_API bool socket_pending(const struct socket_t *socket, int timeout);
+NETWORK_API bool socket_pending(const struct socket *socket, int timeout);
 
 NETWORK_API bool poll_next(size_t len, const struct pollfd fds[static len], int events);
 
-NETWORK_API ssize_t socket_read_exactly(struct socket_t *s, size_t length, uint8_t buffer[static length],
+NETWORK_API ssize_t socket_read_exactly(struct socket *s, size_t length, uint8_t buffer[static length],
                                         int flags);
 
-NETWORK_API ssize_t socket_read(struct socket_t *s, size_t length, uint8_t buffer[static length], int flags);
+NETWORK_API ssize_t socket_read(struct socket *s, size_t length, uint8_t buffer[static length], int flags);
 
-NETWORK_API ssize_t socket_write(struct socket_t *s, size_t length, const uint8_t buffer[static length],
+NETWORK_API ssize_t socket_write(struct socket *s, size_t length, const uint8_t buffer[static length],
                                  int flags);
 
-NETWORK_API ssize_t socket_write_file(struct socket_t *s, FILE *file, size_t lenght);
+NETWORK_API ssize_t socket_write_file(struct socket *s, FILE *file, size_t lenght);
 
 #define socket_option(fd__, level__, VAL)\
     setsockopt(fd__, level__, SOL_SOCKET, (typeof(VAL)[1]){(VAL)}, sizeof (VAL))
@@ -122,7 +128,7 @@ NETWORK_API ssize_t socket_write_file(struct socket_t *s, FILE *file, size_t len
     fcntl(fd__, F_SETFL, O_NONBLOCK)
 
 #define ipv4_endpoint_new(host_ip__, host_port__)\
-    ((struct socket_address_t) {\
+    ((struct socket_address) {\
         .sa = (struct sockaddr *) &(struct sockaddr_in) {\
             .sin_family = AF_INET,\
             .sin_port = htons(host_port__),\
@@ -136,8 +142,8 @@ NETWORK_API ssize_t socket_write_file(struct socket_t *s, FILE *file, size_t len
 #define ipv4_endpoint_empty() ipv4_endpoint_new(0, 0)
 
 
-struct tcp_listener_t tcp_listener_new(const int domain) {
-    const struct tcp_listener_t listener = {
+struct tcp_listener tcp_listener_new(const int domain) {
+    const struct tcp_listener listener = {
         .sock_fd = -1,
         .last_error = 0,
         .domain = domain
@@ -145,7 +151,7 @@ struct tcp_listener_t tcp_listener_new(const int domain) {
     return listener;
 }
 
-const char *socket_address_to_cstr(const struct socket_address_t *addr, const struct allocator_t *a) {
+const char *socket_address_to_cstr(const struct socket_address *addr, const struct allocator *a) {
     switch (addr->sa->sa_family) {
     case AF_INET: {
         const uint16_t port = ntohs(((struct sockaddr_in *) addr->sa)->sin_port);
@@ -168,7 +174,12 @@ const char *socket_address_to_cstr(const struct socket_address_t *addr, const st
     unreachable();
 }
 
-bool tcp_listener_bind(struct tcp_listener_t *listener, struct socket_address_t *addr) {
+const char *ipv4_cstr(const struct socket_address *addr) {
+    assert(addr->sa->sa_family == AF_INET);
+    return inet_ntoa(((struct sockaddr_in *) addr->sa)->sin_addr);
+}
+
+bool tcp_listener_bind(struct tcp_listener *listener, struct socket_address *addr) {
     if (listener->last_error != 0) { return false; }
     const int domain = listener->domain;
     listener->sock_fd = socket(domain, SOCK_STREAM, IPPROTO_TCP);
@@ -184,7 +195,7 @@ bool tcp_listener_bind(struct tcp_listener_t *listener, struct socket_address_t 
     return true;
 }
 
-bool tcp_listener_listen(struct tcp_listener_t *listener, const int backlog) {
+bool tcp_listener_listen(struct tcp_listener *listener, const int backlog) {
     if (listener->last_error != 0) { return false; }
     if (listen(listener->sock_fd, backlog) < 0) {
         listener->last_error = errno;
@@ -192,8 +203,8 @@ bool tcp_listener_listen(struct tcp_listener_t *listener, const int backlog) {
     return true;
 }
 
-struct socket_t tcp_listener_accept(const struct tcp_listener_t *listener, struct socket_address_t *addr) {
-    struct socket_t client = {
+struct socket tcp_listener_accept(const struct tcp_listener *listener, struct socket_address *addr) {
+    struct socket client = {
         .error = listener->last_error,
         .addr = addr,
     };
@@ -206,7 +217,7 @@ struct socket_t tcp_listener_accept(const struct tcp_listener_t *listener, struc
     return client;
 }
 
-bool tcp_listener_close(struct tcp_listener_t *listener) {
+bool tcp_listener_close(struct tcp_listener *listener) {
     if (listener->last_error != 0) { return false; }
     if (close(listener->sock_fd) < 0) {
         listener->last_error = errno;
@@ -216,8 +227,8 @@ bool tcp_listener_close(struct tcp_listener_t *listener) {
     return true;
 }
 
-struct socket_t socket_new(const int domain, const int type, const int protocol) {
-    struct socket_t client = {
+struct socket socket_new(const int domain, const int type, const int protocol) {
+    struct socket client = {
         .sock_fd = -1,
     };
     client.sock_fd = socket(domain, type, protocol);
@@ -228,7 +239,7 @@ struct socket_t socket_new(const int domain, const int type, const int protocol)
     return client;
 }
 
-bool tcp_client_connect(struct socket_t *client, struct socket_address_t *addr) {
+bool tcp_client_connect(struct socket *client, struct socket_address *addr) {
     if (client->error != 0) { return false; }
     client->addr = addr;
     if (connect(client->sock_fd, addr->sa, addr->addr_len) < 0) {
@@ -238,8 +249,8 @@ bool tcp_client_connect(struct socket_t *client, struct socket_address_t *addr) 
     return true;
 }
 
-bool tcp_server_incoming_next(const struct tcp_listener_t *listener, struct socket_t *client,
-                              struct socket_address_t *addr) {
+bool tcp_server_incoming_next(const struct tcp_listener *listener, struct socket *client,
+                              struct socket_address *addr) {
     const int client_socket = accept(listener->sock_fd, addr->sa, &addr->addr_len);
     if (client_socket < 0) {
         client->error = errno;
@@ -250,7 +261,7 @@ bool tcp_server_incoming_next(const struct tcp_listener_t *listener, struct sock
     return true;
 }
 
-bool socket_close(struct socket_t *s) {
+bool socket_close(struct socket *s) {
     if (s->error != 0) { return false; }
     if (close(s->sock_fd) < 0) {
         s->error = errno;
@@ -260,7 +271,7 @@ bool socket_close(struct socket_t *s) {
     return true;
 }
 
-bool socket_pending(const struct socket_t *socket, const int timeout) {
+bool socket_pending(const struct socket *socket, const int timeout) {
     if (socket->error != 0) { return false; }
 
     struct pollfd pfd = {
@@ -283,7 +294,7 @@ bool poll_next(const size_t len, const struct pollfd fds[], const int events) {
     return false;
 }
 
-ssize_t socket_read_exactly(struct socket_t *s, const size_t length, uint8_t buffer[static length],
+ssize_t socket_read_exactly(struct socket *s, const size_t length, uint8_t buffer[static length],
                             const int flags) {
     ptrdiff_t left_to_read = length;
     while (left_to_read > 0) {
@@ -302,7 +313,7 @@ ssize_t socket_read_exactly(struct socket_t *s, const size_t length, uint8_t buf
     return length;
 }
 
-ssize_t socket_read(struct socket_t *s, const size_t length, uint8_t buffer[static length], const int flags) {
+ssize_t socket_read(struct socket *s, const size_t length, uint8_t buffer[static length], const int flags) {
     if (s->error != 0) { return -1; }
     const ssize_t got = recv(s->sock_fd, buffer, length, flags);
     if (got == 0) {
@@ -316,7 +327,7 @@ ssize_t socket_read(struct socket_t *s, const size_t length, uint8_t buffer[stat
     return got;
 }
 
-ssize_t socket_write(struct socket_t *s, const size_t length, const uint8_t buffer[static length],
+ssize_t socket_write(struct socket *s, const size_t length, const uint8_t buffer[static length],
                      const int flags) {
     if (s->error != 0) { return -1; }
     const ssize_t sent = send(s->sock_fd, buffer, length, flags);
@@ -331,30 +342,30 @@ ssize_t socket_write(struct socket_t *s, const size_t length, const uint8_t buff
     return sent;
 }
 
-ssize_t socket_write_file(struct socket_t *s, FILE *file, const size_t lenght) {
+
+ssize_t socket_write_file(struct socket *s, FILE *file, size_t lenght) {
     if (s->error != 0) { return -1; }
     const int fd = fileno(file);
     if (fd < 0) { return 0; }
 
-    ptrdiff_t left_to_read = lenght;
     off_t offset = 0;
-    while (left_to_read > 0) {
+    while (lenght > 0) {
         fseek(file, offset, SEEK_SET);
-        const ssize_t result = sendfile(s->sock_fd, fd, &offset, left_to_read);
+        const ssize_t result = sendfile(s->sock_fd, fd, &offset, lenght);
         if (result == 0) {
             socket_close(s);
-            return lenght - left_to_read;
+            return offset;
         }
         if (result < 0) {
             s->error = errno;
             return -1;
         }
-        left_to_read -= result;
+        lenght -= result;
     }
-    return lenght;
+    return offset;
 }
 
-static void *_socket_read_struct_impl(struct socket_t *socket, const size_t length, uint8_t buffer[length],
+static void *_socket_read_struct_impl(struct socket *socket, const size_t length, uint8_t buffer[length],
                                       const int flags) {
     socket_read_exactly(socket, length, buffer, flags);
     return buffer;
@@ -365,10 +376,11 @@ static void *_socket_read_struct_impl(struct socket_t *socket, const size_t leng
 
 #define socket_read_array(socket__, type__, length__, flags__) \
     ({\
-        struct { type__ data[length__]; } __array;\
-        socket_read_exactly(socket__, size_and_address(__array), flags__);\
-        __array;\
-    })
+        struct { size_t length; type__ data[(length__)]; } _array;\
+        _array.length = sizeof _array.data;\
+        socket_read_exactly(socket__, _array.length, _array.data, flags__);\
+        _array;\
+    }).data
 
 #define socket_write_struct(socket__, struct__, flags__) \
     ({\

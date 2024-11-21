@@ -288,7 +288,7 @@ int main() {
     printf("%d * 2 = %d\n", 1, hash_table_at(map, 1));
     printf("%d * 2 = %d\n", 3, hash_table_at(map, 3));
 
-    struct string_view_t {
+    struct string_view {
         size_t length;
         char *data;
     };
@@ -296,18 +296,18 @@ int main() {
     struct socket_t {
         int sock_fd;
         int last_error;
-        struct socket_address_t *addr;
+        struct socket_address *addr;
     };
 
     struct user_t {
-        struct string_view_t username;
+        struct string_view username;
         struct socket_t socket;
     };
 
     var users = hash_table_new(char*, struct user_t, string_hash, string_equals, &default_allocator);
 
     struct user_t user_1 = {
-        .username = (struct string_view_t){
+        .username = (struct string_view){
             .data = "John",
             .length = sizeof "John" - 1,
         },
@@ -319,7 +319,7 @@ int main() {
     };
 
     struct user_t user_2 = {
-        .username = (struct string_view_t){
+        .username = (struct string_view){
             .data = "Jane",
             .length = sizeof "Jane" - 1,
         },

@@ -34,7 +34,7 @@ struct hash_entry_t {
 };
 
 struct hash_set_t {
-    struct allocator_t *allocator;
+    struct allocator *allocator;
     size_t length;
     size_t capacity;
 
@@ -225,7 +225,7 @@ static struct hash_set_t *_hash_set_with_capacity_impl(
     const size_t capacity,
     int32_t (*hash)(const void *element),
     bool (*equals)(const void *a, const void *b),
-    struct allocator_t *allocator) {
+    struct allocator *allocator) {
     const size_t entry_size = sizeof(struct hash_entry_t) + element_size;
     const size_t entries_size = capacity * entry_size;
     const size_t alloc_size = sizeof(struct hash_set_t) + entries_size;

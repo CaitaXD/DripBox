@@ -16,11 +16,11 @@ enum {
 };
 
 const char *USAGE_MSG =
-        "Usage: dripbox <client username | server> [ip] [port] [OPTIONS]\n"
+        "Usage: dripbox <client dripbox_username | server> [ip] [port] [OPTIONS]\n"
         "\n"
         "Arguments:\n"
         "  client|server\t\tClient or server mode\n"
-        "  username\t\t\tUsername to use\n"
+        "  dripbox_username\t\t\tUsername to use\n"
         "  ip\t\t\tip address to bind to (default: 0.0.0.0)\n"
         "  port\t\t\tport to bind to (default: 25565)\n"
         "\n"
@@ -41,8 +41,8 @@ int parse_commandline(const int argc, char *argv[argc]) {
             mode = argv[i];
             if (strncmp(mode, "client", strlen("client")) == 0) {
                 mode_type = MODE_CLIENT;
-                username.data = argv[i] + sizeof "client";
-                username.length = strnlen(username.data, 255);
+                dripbox_username.data = argv[i] + sizeof "client";
+                dripbox_username.length = strnlen(dripbox_username.data, 255);
             } else if (strcmp(mode, "server") == 0) {
                 mode_type = MODE_SERVER;
             } else {
@@ -82,7 +82,6 @@ void print_network_info(void) {
 }
 
 int main(const int argc, char *argv[argc]) {
-
     for (int i = 0; i < argc; i++) {
         printf("%s ", argv[i]);
     }
@@ -94,7 +93,7 @@ int main(const int argc, char *argv[argc]) {
         return 0;
     case SUCCESS:
         printf("Starting DripBox %s\n", mode);
-        printf("IP: %s\n", inet_ntoa(*(struct in_addr *) &ip));
+        printf("Ip=%s\n", inet_ntoa(*(struct in_addr *) &ip));
         printf("Port: %d\n", port);
         print_network_info();
         if (mode_type == MODE_CLIENT) {

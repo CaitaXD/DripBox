@@ -54,7 +54,7 @@
 
 #define finalizer(expression__) scoped_expression(, expression__)
 
-#define ARRAY_LITERAL(size__, ...) ((uint8_t[(size__)]){ __VA_ARGS__ })
+#define STACK_BUFFER(size__, ...) ((uint8_t[(size__)]){ __VA_ARGS__ })
 
 #define unreachable() __builtin_unreachable()
 
@@ -191,12 +191,21 @@ static bool string_equals(const void *a, const void *b) {
 #define max(...) FOLD(max2, __VA_ARGS__)
 #define min(...) FOLD(min2, __VA_ARGS__)
 
-struct iterator_t {
-    bool (*next)(struct iterator_t *iterator);
+#define clone(ptr__) ((typeof(ptr__)) memcpy(alloca(sizeof *(ptr__)), ptr__, sizeof *(ptr__)))
 
-    void *current;
-};
+#define IS_INDEXABLE(arg) (sizeof(arg[0]))
+#define IS_ARRAY_LIKE(arg) (((void *) &arg) == ((void *) arg))
+#define IS_ARRAY(arg) (IS_INDEXABLE(arg) && IS_ARRAY_LIKE(arg))
 
-#define clone(ptr__) (typeof(ptr__)) memcpy(alloca(sizeof *(ptr__)), ptr__, sizeof *(ptr__))
+#define zero_initialized(x) ({\
+    typeof(x) _x = (x);\
+    memcmp(&_x, &((typeof(_x)){}), sizeof _x) == 0;\
+})
+
+// #define lambda(return_type, function_body) \
+// ({ \
+//     return_type _fn_ function_body \
+//     _fn_; \
+// })
 
 #endif //COMMON_H
