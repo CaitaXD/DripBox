@@ -257,6 +257,6 @@ static void dripbox_send_error(struct socket *s, const int errnum, const char *c
     "  atime: "tm_long_datefmt",\n"\
     "  mtime: "tm_long_datefmt",\n"\
     "  checksum: 0X%X\n"\
-    "}\n"
+    "}"
 
 #endif //DRIPBOX_COMMON_H
