@@ -491,16 +491,18 @@ int dripbox_client_list_server(struct socket *s, const bool update_client_list) 
         time_t ctime = server_st.ctime;
         time_t atime = server_st.atime;
         time_t mtime = server_st.mtime;
-        char *name = server_st.name;
 
         const struct tm *tm_ctime = localtime(&ctime);
         const struct tm *tm_atime = localtime(&atime);
         const struct tm *tm_mtime = localtime(&mtime);
 
-        printf(dripbox_file_stat_fmt"\n", name,
+        printf(dripbox_file_stat_fmt"\n",
+            server_st.name,
             tm_long_data_deconstruct(tm_ctime),
             tm_long_data_deconstruct(tm_atime),
-            tm_long_data_deconstruct(tm_mtime));
+            tm_long_data_deconstruct(tm_mtime),
+            server_st.checksum
+        );
     }
 
     if (update_client_list) {
