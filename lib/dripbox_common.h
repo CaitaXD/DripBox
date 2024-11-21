@@ -115,6 +115,7 @@ static const char *msg_type_cstr(const enum msg_type msg_type) {
     case MSG_DOWNLOAD: return "Download";
     case MSG_LOGIN: return "Login";
     case MSG_NOOP: return "Noop";
+    case MSG_BYTES: return "Bytes";
     case MSG_DELETE: return "Delete";
     default: return "Invalid Message";
     }
@@ -129,7 +130,6 @@ static const char *dripbox_read_error(struct socket *s) {
     }
     return errstr;
 }
-
 
 uint8_t dripbox_checksum(const uint8_t *ptr, size_t sz) {
     uint8_t chk = 0;
