@@ -483,8 +483,8 @@ int dripbox_client_list_server(struct socket *s, const bool update_client_list) 
     socket_read_exactly(s, size_and_address(server_stats), 0);
 
     if(server_stats_count > 0) {
-        printf("\n\n==== Client\'s server files ====\n\n");
         diagf(LOG_INFO, "Received %d files\n", server_stats_count);
+        printf("\n\n==== Client\'s server files ====\n\n");
     }
 
     for (int i = 0; i < server_stats_count; i++) {
