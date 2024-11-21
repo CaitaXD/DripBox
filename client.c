@@ -494,14 +494,14 @@ int dripbox_client_list_server(struct socket *s, const bool update_client_list) 
         time_t mtime = server_st.mtime;
         char *name = server_st.name;
 
-        //const struct tm *tm_ctime = localtime(&ctime);
-        //const struct tm *tm_atime = localtime(&atime);
-        //const struct tm *tm_mtime = localtime(&mtime);
+        const struct tm *tm_ctime = localtime(&ctime);
+        const struct tm *tm_atime = localtime(&atime);
+        const struct tm *tm_mtime = localtime(&mtime);
 
-        //printf(file_times_fmt"\n", name,
-        //    tm_long_data_deconstruct(tm_ctime),
-        //    tm_long_data_deconstruct(tm_atime),
-        //    tm_long_data_deconstruct(tm_mtime));
+        printf(file_times_fmt"\n", name,
+            tm_long_data_deconstruct(tm_ctime),
+            tm_long_data_deconstruct(tm_atime),
+            tm_long_data_deconstruct(tm_mtime));
     }
 
     if (update_client_list) {
@@ -554,7 +554,7 @@ int dripbox_client_list_server(struct socket *s, const bool update_client_list) 
         var to_download = array_set_difference(server_set, client_set, set_equals, stackalloc);
         diagf(LOG_INFO, "To Download: %ld\n", array_length(to_download));
 
-        // Delete = { file | file ∈ (Client ↦ file_name)  \ (Server ↦ file_name) }
+        // Delete = { file | file ∈ (Client ↦ file_name) \ (Server ↦ file_name) }
         var to_delete = array_set_difference(client_set, server_set, set_name_equals, stackalloc);
         diagf(LOG_INFO, "To Delete: %ld\n", array_length(to_delete));
 
