@@ -332,40 +332,57 @@ void dripbox_client_list(const struct string_view sync_dir_path) {
 
 void dripbox_cleint_inotify_dispatch(struct socket *s, struct inotify_event_t inotify_event) {
     int i = 0;
+    struct inotify_event *event = NULL;
+    struct inotify_event *last_event = NULL;
     while (i < inotify_event.buffer_len) {
-        struct inotify_event *event = (struct inotify_event *) &inotify_event.event_buffer[i];
-
-        if (event->mask >= IN_ISDIR) { event->mask %= IN_ISDIR; }
-
-        const struct z_string fullpath = path_combine(g_sync_dir_path, (char*)event->name);
-        switch (event->mask) {
-        case IN_MODIFY:
-            diagf(LOG_INFO, "Modified %s\n", event->name);
-            dripbox_client_upload(s, fullpath.data);
-            break;
-        case IN_ATTRIB:
-            diagf(LOG_INFO, "%s Metadata changed \n", event->name);
-            dripbox_client_upload(s, fullpath.data);
-            break;
-        case IN_MOVED_TO:
-            diagf(LOG_INFO, "Moved %s in\n", event->name);
-            dripbox_client_upload(s, fullpath.data);
-            break;
-        case IN_MOVED_FROM:
-            diagf(LOG_INFO, "%s Moved out\n", event->name);
-            dripbox_delete_from_server(s, event->name);
-            break;
-        case IN_DELETE:
-            diagf(LOG_INFO, "Deleted %s\n", event->name);
-            dripbox_delete_from_server(s, event->name);
-            break;
-        case IN_DELETE_SELF:
-            diagf(LOG_ERROR, "[NOT IMPLEMENTED] IN_DELETE_SELF\n");
-            break;
-        default:
-            printf("OTHER\n");
-        }
+        event = (struct inotify_event *) &inotify_event.event_buffer[i];
         i += EVENT_SIZE + event->len;
+        last_event = event;
+        event = (struct inotify_event *) &inotify_event.event_buffer[i];
+        i += EVENT_SIZE + event->len;
+        if (i >= inotify_event.buffer_len) { break; }
+    }
+    event = last_event;
+
+    // Ignore dot files
+    if (sv_starts_with(event->name, ".")) {
+        return;
+    }
+    // Ignore backup files
+    if (sv_ends_with(event->name, "~")) {
+        return;
+    }
+
+    assert(event && "Nougthy");
+    if (event->mask >= IN_ISDIR) { event->mask %= IN_ISDIR; }
+
+    const struct z_string fullpath = path_combine(g_sync_dir_path, (char*)event->name);
+    switch (event->mask) {
+    case IN_MODIFY:
+        diagf(LOG_INFO, "Modified %s\n", event->name);
+        dripbox_client_upload(s, fullpath.data);
+        break;
+    case IN_ATTRIB:
+        diagf(LOG_INFO, "%s Metadata changed \n", event->name);
+        dripbox_client_upload(s, fullpath.data);
+        break;
+    case IN_MOVED_TO:
+        diagf(LOG_INFO, "Moved %s in\n", event->name);
+        dripbox_client_upload(s, fullpath.data);
+        break;
+    case IN_MOVED_FROM:
+        diagf(LOG_INFO, "%s Moved out\n", event->name);
+        dripbox_delete_from_server(s, event->name);
+        break;
+    case IN_DELETE:
+        diagf(LOG_INFO, "Deleted %s\n", event->name);
+        dripbox_delete_from_server(s, event->name);
+        break;
+    case IN_DELETE_SELF:
+        diagf(LOG_ERROR, "[NOT IMPLEMENTED] IN_DELETE_SELF\n");
+        break;
+    default:
+        printf("OTHER\n");
     }
 }
 
