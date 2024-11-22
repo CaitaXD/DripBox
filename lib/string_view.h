@@ -180,6 +180,22 @@ static struct z_string z_sv(const struct string_view sv, const struct allocator 
     };
 }
 
+static ssize_t (sv_ends_with)(const struct string_view str, const struct string_view suffix)
+{
+    if (suffix.length >  str.length) { return 0; }
+    return strncmp(str.data + str.length - suffix.length, suffix.data, suffix.length) == 0;
+}
+
+#define sv_ends_with(str__, suffix__) (sv_ends_with)(SV(str__), SV(suffix__))
+
+static ssize_t (sv_starts_with)(const struct string_view str, const struct string_view prefix)
+{
+    if (prefix.length >  str.length) { return 0; }
+    return strncmp(str.data, prefix.data, prefix.length) == 0;
+}
+
+#define sv_starts_with(str__, prefix__) (sv_starts_with)(SV(str__), SV(prefix__))
+
 static bool (sv_equals)(const struct string_view a, const struct string_view b) {
     return a.length == b.length && memcmp(a.data, b.data, a.length) == 0;
 }
