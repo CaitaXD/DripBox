@@ -196,7 +196,7 @@ int dripbox_client_upload(struct socket *s, char *file_path) {
     }
 
     if (S_ISDIR(st.st_mode)) {
-        dripbox_send_error(s, EISDIR, file_path);
+        dripbox_send_error(s, EISDIR,SV( file_path));
         return -1;
     }
 
@@ -308,12 +308,13 @@ void dripbox_client_list(const struct string_view sync_dir_path) {
 
     printf("\n\n==== Local Client\'s Files: ====\n\n");
     while (n--) {
-        const struct string_view file_path = (struct string_view){
+        const struct string_view file_name = (struct string_view){
             .data = namelist[n]->d_name,
             .length = strlen(namelist[n]->d_name),
         };
 
-        if (stat(path_combine(sync_dir_path, file_path).data, &statbuf) > 0) {
+        const struct z_string path = path_combine(sync_dir_path, file_name);
+        if (stat(path.data, &statbuf) > 0) {
             const struct tm *tm_ctime = localtime(&statbuf.st_ctime);
             const struct tm *tm_atime = localtime(&statbuf.st_atime);
             const struct tm *tm_mtime = localtime(&statbuf.st_mtime);
@@ -322,7 +323,8 @@ void dripbox_client_list(const struct string_view sync_dir_path) {
                 namelist[n]->d_name,
                 tm_long_data_deconstruct(tm_ctime),
                 tm_long_data_deconstruct(tm_atime),
-                tm_long_data_deconstruct(tm_mtime)
+                tm_long_data_deconstruct(tm_mtime),
+                dripbox_file_checksum(path.data)
             );
         }
     }
@@ -428,13 +430,12 @@ send_file:
 
 void dripbox_client_handle_server_message(struct socket *s) {
     const var msg_header = socket_read_struct(s, struct dripbox_msg_header, 0);
-    diagf(LOG_INFO, "Message { Version: 0X%X Type: 0X%X }\n", msg_header.version, msg_header.type);
 
     if (!dripbox_expect_version(s, msg_header.version, 1)) {
         return;
     }
 
-    diagf(LOG_ERROR, "Message Recieved: %s\n", msg_type_cstr(msg_header.type));
+    diagf(LOG_INFO, "Message { Version: 0X%X Type:'%s' }\n", msg_header.version, msg_type_cstr(msg_header.type));
 
     switch (msg_header.type) {
     case MSG_NOOP:
@@ -448,7 +449,8 @@ void dripbox_client_handle_server_message(struct socket *s) {
         break;
     }
     case MSG_ERROR: {
-        diagf(LOG_ERROR, "Dripbox error: %s\n", dripbox_read_error(s));
+        const struct string_view sv_error = dripbox_read_error(s);
+        diagf(LOG_ERROR, "Dripbox error: "sv_fmt"\n", (int)sv_deconstruct(sv_error));
         break;
     }
     default:

@@ -16,9 +16,9 @@ struct array {
 
 #define array_stack(type__, length__) \
     ({\
-        struct { size_t length; type__ data[length__]; } __array;\
-       __array.length = (length__);\
-       __array;\
+        struct { size_t length; type__ data[(length__)]; } _array;\
+       _array.length = (length__);\
+       _array;\
     }).data
 
 #define array_new(type__, length__, allocator__) \

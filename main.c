@@ -82,6 +82,7 @@ void print_network_info(void) {
 }
 
 int main(const int argc, char *argv[argc]) {
+
     for (int i = 0; i < argc; i++) {
         printf("%s ", argv[i]);
     }

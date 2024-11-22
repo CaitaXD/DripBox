@@ -110,10 +110,31 @@ static bool sv_split_next(struct string_view *sv, const struct string_view delim
     return true;
 }
 
+#include <stdarg.h>
+
+static struct string_view sv_empty = { .data = "" };
+
+#define sv_stack(size__) sv_new(size__, alloca(size__))
+
+#define sv_static(size__) ({\
+    static char __sv_static_buffer[size__];\
+    sv_new(size__, __sv_static_buffer);\
+})
+
+#define sv_printf(sv__, format__, ...) (sv_prtinf)(SV(sv__), format__, ##__VA_ARGS__);
+
+static struct string_view (sv_prtinf)(const struct string_view sv, const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    const int n = vsnprintf(sv.data, sv.length, format, args);
+    va_end(args);
+    if (n < 0) { return sv_empty; }
+    return sv_take(sv, n);
+}
+
 static const char PATH_SEPARATOR = '/';
 
-static ssize_t _sv_path_combine_impl(struct string_view *dst,
-                                     const struct string_view a, const struct string_view b) {
+static ssize_t sv_path_combine_impl(struct string_view *dst, const struct string_view a, const struct string_view b) {
     memcpy(dst->data, a.data, a.length);
     dst->length = a.length;
     if (a.length > 0 && a.data[a.length - 1] != PATH_SEPARATOR) {
@@ -182,11 +203,12 @@ static bool (sv_equals)(const struct string_view a, const struct string_view b) 
     ({\
         var _str = (str__);\
         var _ptr = &_str;\
-        _Generic(_ptr, \
+        var _ret = _Generic(_ptr, \
             MATCH_PTR_CAST_RETURN(struct string_view, _ptr),\
             MATCH_PTR(struct z_string, sv_z(*(struct z_string *)_ptr)),\
             MATCH_PTR(char*, sv_cstr(*(char**)_ptr))\
         );\
+        _ret;\
     })\
 }[0])
 
@@ -200,7 +222,7 @@ static bool (sv_equals)(const struct string_view a, const struct string_view b) 
         .length = 0,\
     };\
     for (size_t i = 0; i < __len; i++) {\
-        _sv_path_combine_impl(&__acc, __acc, __sv_args[i]);\
+        sv_path_combine_impl(&__acc, __acc, __sv_args[i]);\
     }\
     __acc.data[__acc.length] = 0;\
     (struct z_string){ .data = __acc.data, .length = __acc.length };\

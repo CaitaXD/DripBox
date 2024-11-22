@@ -117,18 +117,19 @@ static const char *msg_type_cstr(const enum msg_type msg_type) {
     case MSG_NOOP: return "Noop";
     case MSG_BYTES: return "Bytes";
     case MSG_DELETE: return "Delete";
+    case MSG_ERROR: return "Error";
     default: return "Invalid Message";
     }
 }
 
-static const char *dripbox_read_error(struct socket *s) {
+static struct string_view dripbox_read_error(struct socket *s) {
     const struct dripbox_error_header error_header = socket_read_struct(s, struct dripbox_error_header, 0);
     diagf(LOG_INFO, "Error { Error Length: %ld }\n", error_header.error_length);
     const var errstr = socket_read_array(s, char, error_header.error_length, 0);
     if (s->error != 0) {
-        return strerror(s->error);
+        return SV(strerror(s->error));
     }
-    return errstr;
+    return SV(errstr);
 }
 
 uint8_t dripbox_checksum(const uint8_t *ptr, size_t sz) {
@@ -178,7 +179,8 @@ static bool dripbox_expect_msg_(struct socket *s, const enum msg_type actual, co
         return false;
     }
     if (actual == MSG_ERROR) {
-        diagf(LOG_ERROR, "Dripbox error: %s\n", dripbox_read_error(s));
+        const struct string_view sv_error = dripbox_read_error(s);
+        diagf(LOG_ERROR, "Dripbox error: "sv_fmt"\n", (int)sv_deconstruct(sv_error));
         diagf(LOG_ERROR, "Caller Location [%s:%d]", file, line);
         return false;
     }
@@ -209,20 +211,20 @@ static bool dripbox_expect_version_(const struct socket *s, const uint8_t actual
 }
 
 
-static void dripbox_send_error(struct socket *s, const int errnum, const char *context) {
-    if (errnum != 0) {
-        diagf(LOG_ERROR, "%s %s\n", strerror(errnum), context);
-    }
+static void dripbox_send_error(struct socket *s, const int errnum, const struct string_view context) {
 
-    static char buffer[4096] = {};
-    const int n = snprintf(buffer, sizeof buffer, "%s %s\n", strerror(errnum), context);
-    if (n < 0) {
+    const struct string_view sv_error = sv_printf(sv_stack(4096), "%s "sv_fmt"\n", strerror(errnum), context);
+    if (sv_equals(sv_error, sv_empty)) {
         diagf(LOG_ERROR, "%s\n", strerror(errno));
         return;
     }
-    buffer[n] = 0;
 
-    const struct string_view sv_error = sv_new(n, buffer);
+    diagf(LOG_ERROR, "ERRLEN: %ld\n", sv_error.length);
+    diagf(LOG_ERROR, "ERRLEN: %ld\n", strlen(sv_error.data));
+
+    if (errnum != 0) {
+        diagf(LOG_ERROR, ""sv_fmt"\n", (int)sv_deconstruct(sv_error));
+    }
 
     socket_write_struct(s, ((struct dripbox_msg_header) {
         .version = 1,

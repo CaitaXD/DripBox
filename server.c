@@ -126,18 +126,18 @@ ssize_t dripbox_upload_client_file(struct user_t *user,
     struct socket *client = &user->socket;
     struct stat st;
     if (stat(path.data, &st) < 0) {
-        dripbox_send_error(client, errno, path.data);
+        dripbox_send_error(client, errno, SV(path));
         return 0;
     }
 
     if (S_ISDIR(st.st_mode)) {
-        dripbox_send_error(client, EISDIR, path.data);
+        dripbox_send_error(client, EISDIR, SV(path));
         return 0;
     }
 
     scope(FILE* file = fopen(path.data, "rb"), file && fclose(file)) {
         if (file == NULL) {
-            dripbox_send_error(client, errno, path.data);
+            dripbox_send_error(client, errno, SV(path));
             continue;
         }
 
@@ -223,6 +223,7 @@ upload_file:
 
 void dripbox_server_handle_client_download(struct user_t *user) {
     struct socket *client = &user->socket;
+
     const var download_header = socket_read_struct(client, struct dripbox_download_header, 0);
     const var file_name = sv_new(
         download_header.file_name_length,
@@ -239,12 +240,12 @@ void dripbox_server_handle_client_download(struct user_t *user) {
 
     struct stat st = {};
     if (stat(path.data, &st) < 0) {
-        dripbox_send_error(client, errno, path.data);
+        dripbox_send_error(client, errno, SV(path));
         return;
     }
 
     if (S_ISDIR(st.st_mode)) {
-        dripbox_send_error(client, EISDIR, path.data);
+        dripbox_send_error(client, EISDIR, SV(path));
         return;
     }
 
@@ -256,7 +257,7 @@ void dripbox_server_handle_client_download(struct user_t *user) {
 
     scope(FILE* file = fopen(path.data, "rb"), fclose(file)) {
         if (file == NULL) {
-            dripbox_send_error(client, errno, path.data);
+            dripbox_send_error(client, errno, SV(path));
             break;
         }
 
@@ -292,7 +293,7 @@ void dripbox_server_handle_client_delete(const UsersHashTable *hash_table, struc
     }
 
     if (stat(path.data, &(struct stat){}) < 0) {
-        dripbox_send_error(client, errno, path.data);
+        dripbox_send_error(client, errno, SV(path));
         return;
     }
 
