@@ -84,4 +84,5 @@ void *array_set_difference_(const size_t element_size,
     return out_array;
 }
 
+
 #endif //ARRAY_ALGORITMS_H

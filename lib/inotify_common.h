@@ -58,8 +58,8 @@ struct inotify_watcher_t init_inotify(const int inotify_initial_fd, char dir[]) 
         }
     }
 
-    const int fd = inotify_add_watch(watcher_inst.inotify_fd, dir,
-                                       IN_MOVE | IN_MODIFY | IN_ATTRIB | IN_DELETE | IN_DELETE_SELF); //
+    const uint32_t flags = IN_MOVE | IN_MODIFY | IN_ATTRIB | IN_DELETE | IN_DELETE_SELF | IN_CLOSE_WRITE;
+    const int fd = inotify_add_watch(watcher_inst.inotify_fd, dir, flags);
     if (fd < 0) {
         printf("erro");
         diagf(LOG_ERROR, "Inotify watch add: %s\n", strerror(errno));

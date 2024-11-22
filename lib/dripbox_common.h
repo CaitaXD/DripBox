@@ -129,7 +129,7 @@ static struct string_view dripbox_read_error(struct socket *s) {
     if (s->error != 0) {
         return SV(strerror(s->error));
     }
-    return SV(errstr);
+    return sv_new(error_header.error_length, errstr);
 }
 
 uint8_t dripbox_checksum(const uint8_t *ptr, size_t sz) {
