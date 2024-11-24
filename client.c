@@ -143,7 +143,9 @@ void *dripbox_client_network_worker(const void *args) {
         s->error = 0;
         
         if (socket_pending(s, 0)) {
-            dripbox_client_handle_server_message(s);
+            using_monitor(&g_client_monitor) {
+                dripbox_client_handle_server_message(s);
+            }
         }
         
         if (!fd_pending(STDIN_FILENO)) {
@@ -368,10 +370,10 @@ void dripbox_cleint_inotify_dispatch(struct socket *s, struct inotify_event_t in
         diagf(LOG_INFO, "Modified %s\n", event->name);
         dripbox_client_upload(s, fullpath.data);
         break;
-    case IN_ATTRIB:
-        diagf(LOG_INFO, "%s Metadata changed \n", event->name);
-        dripbox_client_upload(s, fullpath.data);
-        break;
+    // case IN_ATTRIB:
+    //     diagf(LOG_INFO, "%s Metadata changed \n", event->name);
+    //     dripbox_client_upload(s, fullpath.data);
+    //     break;
     case IN_MOVED_TO:
         diagf(LOG_INFO, "Moved %s in\n", event->name);
         dripbox_client_upload(s, fullpath.data);
@@ -388,7 +390,7 @@ void dripbox_cleint_inotify_dispatch(struct socket *s, struct inotify_event_t in
         diagf(LOG_ERROR, "[NOT IMPLEMENTED] IN_DELETE_SELF\n");
         break;
     case IN_CLOSE_WRITE:
-        diagf(LOG_INFO, "Closed %s in\n", event->name);
+        diagf(LOG_INFO, "Closed %s\n", event->name);
         dripbox_client_upload(s, fullpath.data);
         break;
     default:
