@@ -1,4 +1,5 @@
 #include <Allocator.h>
+#include <Monitor.h>
 #include <stdio.h>
 #include <common.h>
 #include <Network.h>
@@ -57,7 +58,7 @@ static bool fd_pending(const int fd) {
     return false;
 }
 
-//struct monitor g_client_monitor = MONITOR_INITIALIZER;
+struct monitor g_client_monitor  = MONITOR_INITIALIZER;
 
 static int dripbox_client_login(struct socket *s, struct string_view username);
 
@@ -104,7 +105,7 @@ int client_main() {
     }
 
     pthread_join(network_worker_id, NULL);
-    pthread_join(inotify_watcher_worker_id, NULL);
+    // pthread_join(inotify_watcher_worker_id, NULL);
 
     return 0;
 }
@@ -116,6 +117,7 @@ static void dripbox_client_command_dispatch(struct socket *s, const struct strin
         if (file_path.data[file_path.length - 1] == '\n') {
             file_path.data[file_path.length - 1] = 0;
         }
+        
         dripbox_client_upload(s, file_path.data);
     } else if (strncmp(cmd.data, g_cmd_download.data, g_cmd_download.length) == 0) {
         const var parts = sv_token(cmd, sv_cstr(" "));
@@ -139,9 +141,11 @@ void *dripbox_client_network_worker(const void *args) {
     // ReSharper disable once CppDFALoopConditionNotUpdated
     while (!dripbox_client_quit) {
         s->error = 0;
+        
         if (socket_pending(s, 0)) {
             dripbox_client_handle_server_message(s);
         }
+        
         if (!fd_pending(STDIN_FILENO)) {
             continue;
         }
@@ -151,8 +155,9 @@ void *dripbox_client_network_worker(const void *args) {
         if (cmd.length == 0) {
             continue;
         }
-
-        dripbox_client_command_dispatch(s, cmd);
+        using_monitor(&g_client_monitor) {
+            dripbox_client_command_dispatch(s, cmd);
+        }
     }
 
     close(s->sock_fd);
@@ -305,7 +310,7 @@ void dripbox_client_list(const struct string_view sync_dir_path) {
     int n = scandir(sync_dir_path.data, &namelist, dripbox_dirent_is_file, alphasort);
 
     struct stat statbuf;
-
+    printf("%d", n);
     printf("\n\n==== Local Client\'s Files: ====\n\n");
     while (n--) {
         const struct string_view file_name = (struct string_view){
@@ -314,7 +319,8 @@ void dripbox_client_list(const struct string_view sync_dir_path) {
         };
 
         const struct z_string path = path_combine(sync_dir_path, file_name);
-        if (stat(path.data, &statbuf) > 0) {
+
+        if (stat(path.data, &statbuf) >= 0) {
             const struct tm *tm_ctime = localtime(&statbuf.st_ctime);
             const struct tm *tm_atime = localtime(&statbuf.st_atime);
             const struct tm *tm_mtime = localtime(&statbuf.st_mtime);
@@ -381,6 +387,10 @@ void dripbox_cleint_inotify_dispatch(struct socket *s, struct inotify_event_t in
     case IN_DELETE_SELF:
         diagf(LOG_ERROR, "[NOT IMPLEMENTED] IN_DELETE_SELF\n");
         break;
+    case IN_CLOSE_WRITE:
+        diagf(LOG_INFO, "Closed %s in\n", event->name);
+        dripbox_client_upload(s, fullpath.data);
+        break;
     default:
         printf("OTHER\n");
     }
@@ -389,10 +399,11 @@ void dripbox_cleint_inotify_dispatch(struct socket *s, struct inotify_event_t in
 void *inotify_watcher_worker(const void *args) {
     struct socket *s = (struct socket *) args;
 
-    const struct inotify_watcher_t watcher = init_inotify(-1, g_sync_dir_path.data);
+    struct inotify_watcher_t watcher = init_inotify(-1, g_sync_dir_path.data);
     // ReSharper disable once CppDFALoopConditionNotUpdated
     while (!dripbox_client_quit) {
         const struct inotify_event_t inotify_event = read_event(watcher);
+
         if (inotify_event.error == EAGAIN) { continue; }
         dripbox_cleint_inotify_dispatch(s, inotify_event);
     }
