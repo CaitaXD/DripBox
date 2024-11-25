@@ -366,10 +366,10 @@ void dripbox_cleint_inotify_dispatch(struct socket *s, struct inotify_event_t in
 
     const struct z_string fullpath = path_combine(g_sync_dir_path, (char*)event->name);
     switch (event->mask) {
-    case IN_MODIFY:
-        diagf(LOG_INFO, "Modified %s\n", event->name);
-        dripbox_client_upload(s, fullpath.data);
-        break;
+    //case IN_MODIFY:
+    //   diagf(LOG_INFO, "Modified %s\n", event->name);
+    //   dripbox_client_upload(s, fullpath.data);
+    //   break;
     // case IN_ATTRIB:
     //     diagf(LOG_INFO, "%s Metadata changed \n", event->name);
     //     dripbox_client_upload(s, fullpath.data);
