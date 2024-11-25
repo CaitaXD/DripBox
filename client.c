@@ -111,7 +111,7 @@ int client_main() {
     }
 
     pthread_join(network_worker_id, NULL);
-    pthread_join(inotify_watcher_worker_id, NULL);
+//    pthread_join(inotify_watcher_worker_id, NULL);
 
     return 0;
 }
