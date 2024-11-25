@@ -231,11 +231,11 @@ static ssize_t copy_file(const char *src_path, const char *dst_path) {
             if (dest_fd < 0) {
                 return -1;
             }
-            if (ioctl(dest_fd, FICLONE, src_fd) < 0) {
-                if (errno != ENOTSUP) {
-                    return -1;
-                }
-                diagf(LOG_INFO, "reflinking not supported, falling back to sendfile");
+            //if (ioctl(dest_fd, FICLONE, src_fd) < 0) {
+                //if (errno != ENOTSUP) {
+                //    return -1;
+                //}
+                //diagf(LOG_INFO, "reflinking not supported, falling back to sendfile");
 
                 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,33)
                 off_t offset = 0;
@@ -258,7 +258,7 @@ static ssize_t copy_file(const char *src_path, const char *dst_path) {
                     st.st_size -= got;
                 }
                 #endif
-            }
+            //}
             return st.st_size;
         }
     }
