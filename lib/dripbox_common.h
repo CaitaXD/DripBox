@@ -9,6 +9,7 @@
 #include <linux/fs.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <linux/version.h>
 
 enum msg_type {\
     MSG_NOOP = 0,
@@ -234,14 +235,29 @@ static ssize_t copy_file(const char *src_path, const char *dst_path) {
                 if (errno != ENOTSUP) {
                     return -1;
                 }
-                diagf(LOG_ERROR, "reflinking not supported, falling back to copy");
+                diagf(LOG_INFO, "reflinking not supported, falling back to sendfile");
 
+                #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,33)
                 off_t offset = 0;
                 while (offset < st.st_size) {
                     const ssize_t got = sendfile(dest_fd, src_fd, &offset, st.st_size - offset);
                     if (got == 0) { break; }
                     if (got < 0) { return -1; }
                 }
+                #else
+                diagf(LOG_INFO, "sendfile not supported for files (Ironic), falling back to read/write");
+                char buffer[1024] = {};
+                while (st.st_size > 0) {
+                    const size_t len = min(sizeof buffer, st.st_size);
+                    const ssize_t got = read(src_fd, buffer, len);
+                    if (got == 0) { break; }
+                    if (got < 0) { return -1; }
+                    const ssize_t sent = write(dest_fd, buffer, got);
+                    if (sent == 0) { break; }
+                    if (sent < 0) { return -1; }
+                    st.st_size -= got;
+                }
+                #endif
             }
             return st.st_size;
         }
