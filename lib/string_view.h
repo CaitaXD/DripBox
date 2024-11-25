@@ -65,7 +65,7 @@ struct sv_pair {
     ARRAY(2, struct string_view);
 };
 
-static struct sv_pair sv_token(const struct string_view string,
+static struct sv_pair (sv_token)(const struct string_view string,
                                const struct string_view delim) {
     struct sv_pair pair = {};
     const ssize_t index = sv_index(string, delim);
@@ -77,6 +77,8 @@ static struct sv_pair sv_token(const struct string_view string,
     pair.data[1] = sv_skip(string, index + 1);
     return pair;
 }
+
+#define sv_token(string__, delim__) ((sv_token)(SV(string__), SV(delim__))).data
 
 static struct string_view sv_new(const size_t len, char data[len]) {
     return (struct string_view){
@@ -99,16 +101,18 @@ static char *cstr_sv(const struct string_view sv, const struct allocator *alloca
     return buffer;
 }
 
-static bool sv_split_next(struct string_view *sv, const struct string_view delim, struct string_view *out_part) {
+static bool (sv_split_next)(struct string_view *sv, const struct string_view delim, struct string_view *out) {
     const ssize_t index = sv_index(*sv, delim);
     if (index == -1) {
-        *out_part = *sv;
+        *out = *sv;
         return false;
     }
-    *out_part = sv_take(*sv, index);
+    *out = sv_take(*sv, index);
     *sv = sv_skip(*sv, index + 1);
     return true;
 }
+
+#define sv_split_next(sv__, delim__, out__) ((sv_split_next)(sv__, SV(delim__), out__))
 
 #include <stdarg.h>
 
@@ -202,18 +206,27 @@ static bool (sv_equals)(const struct string_view a, const struct string_view b) 
 
 #define sv_equals(a__, b__) (sv_equals)(SV(a__), SV(b__))
 
+/// Matches the pointer and its const versions in a generic selector
+/// @param type__: The type of the pointer
+/// @param ptr__: The pointer to cast
 #define MATCH_PTR_CAST_RETURN(type__, ptr__) \
     type__*: *((type__*)(ptr__)), \
     type__ *const: *((type__ *const)(ptr__)), \
     const type__*: *((const type__*)(ptr__)), \
     const type__ *const: *((const type__ *const)(ptr__))
 
+/// Matches the pointer and its const versions in a generic selector
+/// @param type__: The type of the pointer
+/// @param do__: The code to execute if the type matches
 #define MATCH_PTR(type__, do__) \
     type__*: (do__), \
     type__ *const: (do__), \
     const type__*: (do__), \
     const type__ *const: (do__)
 
+/// Selects the correct string_view constructor based on the type of the input
+/// @param str__: struct string_view | struct z_string | char* | char[] = The string to convert
+/// @return A string_view
 #define SV(str__) ((struct string_view [1]) \
 { \
     ({\

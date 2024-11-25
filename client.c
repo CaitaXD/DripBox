@@ -16,34 +16,39 @@
 struct string_view dripbox_username = {};
 bool dripbox_client_quit = false;
 
-const struct string_view g_sync_dir_path = (struct string_view){
+const struct string_view g_sync_dir_path ={
     .data = "sync_dir/",
     .length = sizeof "sync_dir/" - 1,
 };
 
-static const struct string_view g_cmd_upload = (struct string_view){
+static const struct string_view g_cmd_upload = {
     .data = "upload",
     .length = sizeof "upload" - 1,
 };
 
-static const struct string_view g_cmd_download = (struct string_view){
+static const struct string_view g_cmd_download = {
     .data = "download",
     .length = sizeof "download" - 1,
 };
 
-static const struct string_view g_cmd_list_client = (struct string_view){
+static const struct string_view g_cmd_list_client = {
     .data = "list_client",
     .length = sizeof "list_client" - 1,
 };
 
-static const struct string_view g_cmd_list_server = (struct string_view){
+static const struct string_view g_cmd_list_server = {
     .data = "list_server",
     .length = sizeof "list_server" - 1,
 };
 
-static const struct string_view cmd_exit = (struct string_view){
+static const struct string_view cmd_exit = {
     .data = "exit",
     .length = sizeof "exit" - 1,
+};
+
+static const struct string_view cmd_shell = {
+    .data = "shell",
+    .length = sizeof "shell" - 1,
 };
 
 static bool fd_pending(const int fd) {
@@ -100,37 +105,64 @@ int client_main() {
     pthread_create(&inotify_watcher_worker_id, NULL, (void *) inotify_watcher_worker, &s);
     pthread_create(&network_worker_id, NULL, (void *) dripbox_client_network_worker, &s);
 
+    // ReSharper disable once CppDFALoopConditionNotUpdated
     while (!dripbox_client_quit) {
         sleep(1);
     }
 
     pthread_join(network_worker_id, NULL);
-    // pthread_join(inotify_watcher_worker_id, NULL);
+    pthread_join(inotify_watcher_worker_id, NULL);
 
     return 0;
 }
 
 static void dripbox_client_command_dispatch(struct socket *s, const struct string_view cmd) {
+    // Upload
     if (strncmp(cmd.data, g_cmd_upload.data, g_cmd_upload.length) == 0) {
-        const var parts = sv_token(cmd, sv_cstr(" "));
-        const struct string_view file_path = parts.data[1];
+        const struct string_view file_path = sv_token(cmd, sv_cstr(" "))[1];
+
+        struct string_view it = file_path;
+        struct string_view file_name = {};
+        while (sv_split_next(&it, "/", &file_name)) {}
+
         if (file_path.data[file_path.length - 1] == '\n') {
             file_path.data[file_path.length - 1] = 0;
         }
-        
+        const struct z_string sync_dir_path = path_combine(g_sync_dir_path, file_name);
+
+        if(!copy_file(file_path.data, sync_dir_path.data)) {
+            diagf(LOG_ERROR, "%s %s\n", strerror(errno), sync_dir_path.data);
+        }
         dripbox_client_upload(s, file_path.data);
-    } else if (strncmp(cmd.data, g_cmd_download.data, g_cmd_download.length) == 0) {
+    }
+    // Download
+    else if (strncmp(cmd.data, g_cmd_download.data, g_cmd_download.length) == 0) {
         const var parts = sv_token(cmd, sv_cstr(" "));
-        const struct string_view file_path = parts.data[1];
+        const struct string_view file_path = parts[1];
         if (file_path.data[file_path.length - 1] == '\n') {
             file_path.data[file_path.length - 1] = 0;
         }
         dripbox_client_download(s, file_path.data);
-    } else if (strncmp(cmd.data, g_cmd_list_client.data, g_cmd_list_client.length) == 0) {
+    }
+    // List Client
+    else if (strncmp(cmd.data, g_cmd_list_client.data, g_cmd_list_client.length) == 0) {
         dripbox_client_list(g_sync_dir_path);
-    } else if (strncmp(cmd.data, g_cmd_list_server.data, g_cmd_list_server.length) == 0) {
+    }
+    // List Server
+    else if (strncmp(cmd.data, g_cmd_list_server.data, g_cmd_list_server.length) == 0) {
         dripbox_client_list_server(s, false);
-    } else if (strncmp(cmd.data, cmd_exit.data, cmd_exit.length) == 0) {
+    }
+    // Shell
+    else if (strncmp(cmd.data, cmd_shell.data, cmd_shell.length) == 0) {
+        const var parts = sv_token(cmd, sv_cstr(" "));
+        const struct string_view shell = parts[1];
+        if (shell.data[shell.length - 1] == '\n') {
+            shell.data[shell.length - 1] = 0;
+        }
+        system(shell.data);
+    }
+    // Exit
+    else if (strncmp(cmd.data, cmd_exit.data, cmd_exit.length) == 0) {
         dripbox_client_quit = true;
     }
 }
@@ -366,14 +398,6 @@ void dripbox_cleint_inotify_dispatch(struct socket *s, struct inotify_event_t in
 
     const struct z_string fullpath = path_combine(g_sync_dir_path, (char*)event->name);
     switch (event->mask) {
-    //case IN_MODIFY:
-    //   diagf(LOG_INFO, "Modified %s\n", event->name);
-    //   dripbox_client_upload(s, fullpath.data);
-    //   break;
-    // case IN_ATTRIB:
-    //     diagf(LOG_INFO, "%s Metadata changed \n", event->name);
-    //     dripbox_client_upload(s, fullpath.data);
-    //     break;
     case IN_MOVED_TO:
         diagf(LOG_INFO, "Moved %s in\n", event->name);
         dripbox_client_upload(s, fullpath.data);
@@ -401,7 +425,7 @@ void dripbox_cleint_inotify_dispatch(struct socket *s, struct inotify_event_t in
 void *inotify_watcher_worker(const void *args) {
     struct socket *s = (struct socket *) args;
 
-    struct inotify_watcher_t watcher = init_inotify(-1, g_sync_dir_path.data);
+    const struct inotify_watcher_t watcher = init_inotify(-1, g_sync_dir_path.data);
     // ReSharper disable once CppDFALoopConditionNotUpdated
     while (!dripbox_client_quit) {
         const struct inotify_event_t inotify_event = read_event(watcher);

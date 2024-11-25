@@ -121,6 +121,8 @@ NETWORK_API ssize_t socket_write(struct socket *s, size_t length, const uint8_t 
 
 NETWORK_API ssize_t socket_write_file(struct socket *s, FILE *file, size_t lenght);
 
+NETWORK_API ssize_t socket_redirect_to_file(struct socket *s, const char *path, size_t length);
+
 #define socket_option(fd__, level__, VAL)\
     setsockopt(fd__, level__, SOL_SOCKET, (typeof(VAL)[1]){(VAL)}, sizeof (VAL))
 
@@ -296,7 +298,7 @@ bool poll_next(const size_t len, const struct pollfd fds[], const int events) {
 
 ssize_t socket_read_exactly(struct socket *s, const size_t length, uint8_t buffer[static length],
                             const int flags) {
-    ptrdiff_t left_to_read = length;
+    size_t left_to_read = length;
     while (left_to_read > 0) {
         const ssize_t recvd = recv(s->sock_fd, buffer, left_to_read, flags);
         if (recvd == 0) {
@@ -342,7 +344,6 @@ ssize_t socket_write(struct socket *s, const size_t length, const uint8_t buffer
     return sent;
 }
 
-
 ssize_t socket_write_file(struct socket *s, FILE *file, size_t lenght) {
     if (s->error != 0) { return -1; }
     const int fd = fileno(file);
@@ -350,7 +351,7 @@ ssize_t socket_write_file(struct socket *s, FILE *file, size_t lenght) {
 
     off_t offset = 0;
     while (lenght > 0) {
-        fseek(file, offset, SEEK_SET);
+        //fseek(file, offset, SEEK_SET);
         const ssize_t result = sendfile(s->sock_fd, fd, &offset, lenght);
         if (result == 0) {
             socket_close(s);
@@ -363,6 +364,32 @@ ssize_t socket_write_file(struct socket *s, FILE *file, size_t lenght) {
         lenght -= result;
     }
     return offset;
+}
+
+ssize_t socket_redirect_to_file(struct socket *s, const char *path, const size_t length) {
+    if (s->error != 0) { return -1; }
+
+    size_t left_to_read = length;
+    uint8_t buffer[1024] = {};
+    scope(FILE *file = fopen(path, "wb"), file && fclose(file)) {
+        if (file == NULL) {
+            continue;
+        }
+        while (left_to_read > 0) {
+            const size_t len = min(length, sizeof buffer);
+            const ssize_t got = socket_read(s, len, buffer, 0);
+
+            if (got == 0) { break; }
+            if (got < 0) {
+                break;
+            }
+            left_to_read -= got;
+            if (fwrite(buffer, sizeof(uint8_t), got, file) < 0) {
+                break;
+            }
+        }
+    }
+    return length - left_to_read;
 }
 
 static void *_socket_read_struct_impl(struct socket *socket, const size_t length, uint8_t buffer[length],

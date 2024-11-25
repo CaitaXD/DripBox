@@ -6,6 +6,9 @@
 #include <stdint.h>
 #include <string_view.h>
 #include <sys/stat.h>
+#include <linux/fs.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 
 enum msg_type {\
     MSG_NOOP = 0,
@@ -75,37 +78,6 @@ static int dripbox_dirent_is_file(const struct dirent *name) {
         return 0;
     }
     return 1;
-}
-
-typedef int errno_t;
-
-static errno_t socket_redirect_to_file(struct socket *s, const char *path, size_t length) {
-    if (s->error != 0) { return -1; }
-
-    errno_t retval = 0;
-    uint8_t buffer[1024] = {};
-    scope(FILE *file = fopen(path, "wb"), file && fclose(file)) {
-        if (file == NULL) {
-            retval = errno;
-            continue;
-        }
-        while (length > 0) {
-            const size_t len = min(length, sizeof buffer);
-            const ssize_t got = socket_read(s, len, buffer, 0);
-
-            if (got == 0) { break; }
-            if (got < 0) {
-                retval = errno;
-                break;
-            }
-            length -= got;
-            if (fwrite(buffer, sizeof(uint8_t), got, file) < 0) {
-                retval = errno;
-                break;
-            }
-        }
-    }
-    return retval;
 }
 
 static const char *msg_type_cstr(const enum msg_type msg_type) {
@@ -210,7 +182,6 @@ static bool dripbox_expect_version_(const struct socket *s, const uint8_t actual
     return true;
 }
 
-
 static void dripbox_send_error(struct socket *s, const int errnum, const struct string_view context) {
 
     const struct string_view sv_error = sv_printf(sv_stack(4096), "%s "sv_fmt"\n", strerror(errnum), context);
@@ -240,6 +211,42 @@ static void dripbox_send_error(struct socket *s, const int errnum, const struct 
     if (s->error != 0 && s->error != errnum) {
         diagf(LOG_ERROR, "%s", strerror(s->error));
     }
+}
+
+/// Copies a file from src to dst
+/// @param src_path source file path
+/// @param dst_path destination file path
+/// @return true if the copy was successful, false otherwise
+static ssize_t copy_file(const char *src_path, const char *dst_path) {
+    scope(const int src_fd = open(src_path, O_RDONLY), src_fd >= 0 && close(src_fd)) {
+        if (src_fd < 0) {
+            return -1;
+        }
+        struct stat st = {};
+        if (fstat(src_fd, &st) < 0) {
+            return -1;
+        }
+        scope(const int dest_fd = open(dst_path, O_WRONLY | O_CREAT, st.st_mode), dest_fd >= 0 && close(dest_fd)) {
+            if (dest_fd < 0) {
+                return -1;
+            }
+            if (ioctl(dest_fd, FICLONE, src_fd) < 0) {
+                if (errno != ENOTSUP) {
+                    return -1;
+                }
+                diagf(LOG_ERROR, "reflinking not supported, falling back to copy");
+
+                off_t offset = 0;
+                while (offset < st.st_size) {
+                    const ssize_t got = sendfile(dest_fd, src_fd, &offset, st.st_size - offset);
+                    if (got == 0) { break; }
+                    if (got < 0) { return -1; }
+                }
+            }
+            return st.st_size;
+        }
+    }
+    return -1;
 }
 
 #define tm_long_datefmt "%d/%2d/%2d %2d:%2d.%2d"

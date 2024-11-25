@@ -191,8 +191,6 @@ static bool string_equals(const void *a, const void *b) {
 #define max(...) FOLD(max2, __VA_ARGS__)
 #define min(...) FOLD(min2, __VA_ARGS__)
 
-#define clone(ptr__) ((typeof(ptr__)) memcpy(alloca(sizeof *(ptr__)), ptr__, sizeof *(ptr__)))
-
 #define IS_INDEXABLE(arg) (sizeof(arg[0]))
 #define IS_ARRAY_LIKE(arg) (((void *) &arg) == ((void *) arg))
 #define IS_ARRAY(arg) (IS_INDEXABLE(arg) && IS_ARRAY_LIKE(arg))

@@ -60,7 +60,7 @@ if args.command == "build-run" and args.mode == "server":
               f"."
               )
     os.system(f"cd .. && "
-              f"docker run -d --name {container_name}-{args.mode} --network bridge -t {container_name}-{args.mode}"
+              f"docker run --name {container_name}-{args.mode} --network bridge -t {container_name}-{args.mode}"
               )
 elif args.command == "build-run" and args.mode == "client":
     username = args.username.lower().replace(" ", "-")
@@ -81,7 +81,7 @@ elif args.command == "build-run" and args.mode == "client":
               )
     os.system(f"cd .. && "
               f"docker run "
-              f"-d --name {container_name}-{username} "
+              f" -i --name {container_name}-{username} "
               f"--network bridge "
               f"-t {container_name}-{username}"
               )
