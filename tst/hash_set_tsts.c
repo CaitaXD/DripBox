@@ -32,7 +32,7 @@ bool int_ptr_equals(const void *a, const void *b) {
 int main() {
     bool result = false;
 
-    var people = hash_set_new(char*, string_hash, string_equals, &default_allocator);
+    var people = hash_set_new(char*, string_hash, string_comparer_equals, &mallocator);
 
     result = hash_set_insert(people, "John");
     assert(result);
@@ -73,7 +73,7 @@ int main() {
     printf("Length: %zu\n", hs->length);
     printf("Buckets: %zu\n", hs->buckets_length);
     for (size_t i = 0; i < hs->capacity; i++) {
-        struct hash_entry_t *entry = _hash_set_entry_at_impl(hs, i, sizeof(char *));
+        struct hash_entry_t *entry = hash_set_entry_at_impl(hs, i, sizeof(char *));
         const ssize_t next = entry->next;
         if (HASH_ENTRY_IS_NULL(entry)) continue;
         printf("Index: %zu, ", i);
@@ -153,7 +153,7 @@ int main() {
     printf("Length: %zu\n", hs->length);
     printf("Buckets: %zu\n", hs->buckets_length);
     for (size_t i = 0; i < hs->capacity; i++) {
-        struct hash_entry_t *entry = _hash_set_entry_at_impl(hs, i, sizeof(char *));
+        struct hash_entry_t *entry = hash_set_entry_at_impl(hs, i, sizeof(char *));
         const ssize_t next = entry->next;
         if (next == -1) continue;
         printf("Index: %zu, ", i);
@@ -171,7 +171,7 @@ int main() {
     printf("Length: %zu\n", hs->length);
     printf("Buckets: %zu\n", hs->buckets_length);
     for (size_t i = 0; i < hs->capacity; i++) {
-        struct hash_entry_t *entry = _hash_set_entry_at_impl(hs, i, sizeof(char *));
+        struct hash_entry_t *entry = hash_set_entry_at_impl(hs, i, sizeof(char *));
         const ssize_t next = entry->next;
         if (next == -1) continue;
         printf("Index: %zu, ", i);
@@ -182,8 +182,8 @@ int main() {
     }
     printf("\n");
 
-    var table = hash_table_new(char *, int, string_hash, string_equals,
-                               &default_allocator);
+    var table = hash_table_new(char *, int, string_hash, string_comparer_equals,
+                               &mallocator);
 
     result = hash_table_insert(&table, "One", 1);
     assert(result);
@@ -204,12 +204,12 @@ int main() {
     printf("Length: %zu\n", ht->length);
     printf("Buckets: %zu\n", hs->buckets_length);
     for (size_t i = 0; i < ht->capacity; i++) {
-        struct hash_entry_t *entry = _hash_set_entry_at_impl(ht, i, sizeof(KeyValuePair(char *, int)));
+        struct hash_entry_t *entry = hash_set_entry_at_impl(ht, i, sizeof(key_value_pair(char *, int)));
         const size_t next = entry->next;
         if (HASH_ENTRY_IS_NULL(entry)) continue;
         printf("Index: %zu, ", i);
         printf("Hash: %d, ", entry->hash);
-        KeyValuePair(char *, int) *kvp = (void *) entry->value;
+        key_value_pair(char *, int) *kvp = (void *) entry->value;
         printf("Key: %s, ", kvp->key);
         printf("Value: %d, ", kvp->value);
         printf("Bucket: %zu, ", entry->hash % ht->buckets_length);
@@ -236,12 +236,12 @@ int main() {
     printf("Length: %zu\n", ht->length);
     printf("Buckets: %zu\n", hs->buckets_length);
     for (size_t i = 0; i < ht->capacity; i++) {
-        struct hash_entry_t *entry = _hash_set_entry_at_impl(ht, i, sizeof(KeyValuePair(char *, int)));
+        struct hash_entry_t *entry = hash_set_entry_at_impl(ht, i, sizeof(key_value_pair(char *, int)));
         const ssize_t next = entry->next;
         if (HASH_ENTRY_IS_NULL(entry)) continue;
         printf("Index: %zu, ", i);
         printf("Hash: %d, ", entry->hash);
-        KeyValuePair(char *, int) *kvp = (void *) entry->value;
+        key_value_pair(char *, int) *kvp = (void *) entry->value;
         printf("Key: %s, ", kvp->key);
         printf("Value: %d, ", kvp->value);
         printf("Bucket: %zu, ", entry->hash % ht->buckets_length);
@@ -249,7 +249,7 @@ int main() {
     }
     printf("\n");
 
-    var map = hash_table_new(int, int, hash_int_ptr, int_ptr_equals, &default_allocator);
+    var map = hash_table_new(int, int, hash_int_ptr, int_ptr_equals, &mallocator);
 
     for (int i = 0; i < 5; i++) {
         result = hash_table_insert(&map, i, i * 2);
@@ -265,12 +265,12 @@ int main() {
     printf("Length: %zu\n", ht->length);
     printf("Buckets: %zu\n", ht->buckets_length);
     for (size_t i = 0; i < ht->capacity; i++) {
-        struct hash_entry_t *entry = _hash_set_entry_at_impl(ht, i, sizeof(KeyValuePair(int, int)));
+        struct hash_entry_t *entry = hash_set_entry_at_impl(ht, i, sizeof(key_value_pair(int, int)));
         if (HASH_ENTRY_IS_NULL(entry)) continue;
         const size_t next = entry->next;
         printf("Index: %zu, ", i);
         printf("Hash: %d, ", entry->hash);
-        KeyValuePair(int, int) *kvp = (void *) entry->value;
+        key_value_pair(int, int) *kvp = (void *) entry->value;
         printf("Key: %d, ", kvp->key);
         printf("Value: %d, ", kvp->value);
         printf("Bucket: %zu, ", entry->hash % ht->buckets_length);
@@ -304,7 +304,7 @@ int main() {
         struct socket_t socket;
     };
 
-    var users = hash_table_new(char*, struct user_t, string_hash, string_equals, &default_allocator);
+    var users = hash_table_new(char*, struct user_t, string_hash, string_comparer_equals, &mallocator);
 
     struct user_t user_1 = {
         .username = (struct string_view){

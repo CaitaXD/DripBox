@@ -3,8 +3,10 @@ RUN mkdir /app
 COPY .. /app
 WORKDIR /app
 #RUN apt update && apt install -y valgrind
-RUN apt-get update && apt-get install -y vim
-RUN gcc --debug main.c -I ./lib -o bin/dripbox -fsanitize=address
+RUN apt update && apt-get install -y vim
+#RUN apt update && apt-get install -y vim && apt install -y valgrind
+RUN gcc --debug main.c -I ./lib -o bin/dripbox -lpthread -fsanitize=address
+#RUN gcc --debug main.c -I ./lib -o bin/dripbox -lpthread
 RUN chmod +x bin/dripbox
 EXPOSE 25565-40000/udp 25565-40000/tcp
 WORKDIR /app/bin

@@ -27,11 +27,16 @@ MONITOR_API void monitor_notify_one(struct monitor *monitor);
 MONITOR_API void monitor_notify_all(struct monitor *monitor);
 MONITOR_API void monitor_wait_one(struct monitor *monitor);
 
-#define using_monitor_if(monitor__, condition__) \
-    if (condition__) using_monitor(monitor__) if (condition__)
+#define using_conditional_monitor(monitor__, condition__) \
+    if ((condition__)) using_monitor((monitor__)) if ((condition__))
 
 #define using_monitor(monitor__) \
     scope(monitor_enter(monitor__), monitor_exit(monitor__))
+
+#define monitor_return(monitor__, ...) ({\
+    monitor_exit(monitor__);\
+    return __VA_ARGS__;\
+})
 
 #define monitor_wait(monitor__, condition__) \
       while (!(condition__)) monitor_wait_one(monitor__)

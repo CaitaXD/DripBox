@@ -6,8 +6,6 @@
 #include <stdint.h>
 #include <string_view.h>
 #include <sys/stat.h>
-#include <linux/fs.h>
-#include <sys/ioctl.h>
 #include <unistd.h>
 #include <linux/version.h>
 
@@ -19,7 +17,19 @@ enum msg_type {\
     MSG_DELETE = 4,
     MSG_LIST = 5,
     MSG_BYTES = 6,
-    MSG_ERROR = 7,
+    MSG_ADD_REPLICA = 7,
+    MSG_ERROR = 8,
+};
+
+struct uuid {
+    union {
+        uint8_t bytes[16];
+        __uint128_t integer;
+    };
+};
+
+struct string36 {
+    char data[37];
 };
 
 struct dripbox_file_stat {
@@ -64,6 +74,10 @@ struct dripbox_list_header {
     uint64_t file_list_length;
 } __attribute__((packed));
 
+struct dripbox_add_replica_header {
+    struct uuid server_uuid;
+} __attribute__((packed));
+
 int32_t ip = INADDR_ANY;
 uint16_t port = 25565;
 char *mode = NULL;
@@ -90,6 +104,7 @@ static const char *msg_type_cstr(const enum msg_type msg_type) {
     case MSG_NOOP: return "Noop";
     case MSG_BYTES: return "Bytes";
     case MSG_DELETE: return "Delete";
+    case MSG_ADD_REPLICA: return "Add Replica";
     case MSG_ERROR: return "Error";
     default: return "Invalid Message";
     }
@@ -99,8 +114,8 @@ static struct string_view dripbox_read_error(struct socket *s) {
     const struct dripbox_error_header error_header = socket_read_struct(s, struct dripbox_error_header, 0);
     diagf(LOG_INFO, "Error { Error Length: %ld }\n", error_header.error_length);
     const var errstr = socket_read_array(s, char, error_header.error_length, 0);
-    if (s->error != 0) {
-        return SV(strerror(s->error));
+    if (s->error.code != 0) {
+        return SV(strerror(s->error.code));
     }
     return sv_new(error_header.error_length, errstr);
 }
@@ -146,20 +161,20 @@ static uint8_t dripbox_file_checksum(const char *path) {
 
 static bool dripbox_expect_msg_(struct socket *s, const enum msg_type actual, const enum msg_type expected,
     char *file, const int line) {
-    if (s->error != 0) {
-        diagf(LOG_ERROR, "%s\n", strerror(s->error));
-        diagf(LOG_ERROR, "Caller Location [%s:%d]", file, line);
+    if (s->error.code != 0) {
+        diagf(LOG_ERROR, "%s\n", strerror(s->error.code));
+        diagf(LOG_ERROR, "Caller Location [%s:%d]\n", file, line);
         return false;
     }
     if (actual == MSG_ERROR) {
         const struct string_view sv_error = dripbox_read_error(s);
         diagf(LOG_ERROR, "Dripbox error: "sv_fmt"\n", (int)sv_deconstruct(sv_error));
-        diagf(LOG_ERROR, "Caller Location [%s:%d]", file, line);
+        diagf(LOG_ERROR, "Caller Location [%s:%d]\n", file, line);
         return false;
     }
     if (actual != expected) {
         diagf(LOG_ERROR, "Expected Message %s, got Message %s\n", msg_type_cstr(expected), msg_type_cstr(actual));
-        diagf(LOG_ERROR, "Caller Location [%s:%d]", file, line);
+        diagf(LOG_ERROR, "Caller Location [%s:%d]\n", file, line);
         return false;
     }
     return true;
@@ -170,29 +185,26 @@ static bool dripbox_expect_msg_(struct socket *s, const enum msg_type actual, co
 
 static bool dripbox_expect_version_(const struct socket *s, const uint8_t actual, const uint8_t expected,
                                      char *file, const int line) {
-    if (s->error != 0) {
-        diagf(LOG_ERROR, "%s\n", strerror(s->error));
-        diagf(LOG_ERROR, "Caller Location [%s:%d]", file, line);
+    if (s->error.code != 0) {
+        diagf(LOG_ERROR, "%s\n", strerror(s->error.code));
+        diagf(LOG_ERROR, "Caller Location [%s:%d]\n", file, line);
         return false;
     }
     if (actual != expected) {
         diagf(LOG_ERROR, "Expected Version 0X%X, got Version 0X%X\n", expected, actual);
-        diagf(LOG_ERROR, "Caller Location [%s:%d]", file, line);
+        diagf(LOG_ERROR, "Caller Location [%s:%d]\n", file, line);
         return false;
     }
     return true;
 }
 
 static void dripbox_send_error(struct socket *s, const int errnum, const struct string_view context) {
-
-    const struct string_view sv_error = sv_printf(sv_stack(4096), "%s "sv_fmt"\n", strerror(errnum), context);
+    const struct string_view buffer = sv_stack(1024);
+    const struct string_view sv_error = sv_printf(buffer, "%s "sv_fmt"\n", strerror(errnum), context);
     if (sv_equals(sv_error, sv_empty)) {
         diagf(LOG_ERROR, "%s\n", strerror(errno));
         return;
     }
-
-    diagf(LOG_ERROR, "ERRLEN: %ld\n", sv_error.length);
-    diagf(LOG_ERROR, "ERRLEN: %ld\n", strlen(sv_error.data));
 
     if (errnum != 0) {
         diagf(LOG_ERROR, ""sv_fmt"\n", (int)sv_deconstruct(sv_error));
@@ -209,8 +221,8 @@ static void dripbox_send_error(struct socket *s, const int errnum, const struct 
 
     socket_write(s, sv_deconstruct(sv_error), 0);
 
-    if (s->error != 0 && s->error != errnum) {
-        diagf(LOG_ERROR, "%s", strerror(s->error));
+    if (s->error.code != 0 && s->error.code != errnum) {
+        diagf(LOG_ERROR, "%s", strerror(s->error.code));
     }
 }
 
@@ -231,36 +243,64 @@ static ssize_t copy_file(const char *src_path, const char *dst_path) {
             if (dest_fd < 0) {
                 return -1;
             }
-            //if (ioctl(dest_fd, FICLONE, src_fd) < 0) {
-                //if (errno != ENOTSUP) {
-                //    return -1;
-                //}
-                //diagf(LOG_INFO, "reflinking not supported, falling back to sendfile");
-
-                #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,33)
-                off_t offset = 0;
-                while (offset < st.st_size) {
-                    const ssize_t got = sendfile(dest_fd, src_fd, &offset, st.st_size - offset);
-                    if (got == 0) { break; }
-                    if (got < 0) { return -1; }
-                }
-                #else
-                diagf(LOG_INFO, "sendfile not supported for files (Ironic), falling back to read/write");
-                char buffer[1024] = {};
-                while (st.st_size > 0) {
-                    const size_t len = min(sizeof buffer, st.st_size);
-                    const ssize_t got = read(src_fd, buffer, len);
-                    if (got == 0) { break; }
-                    if (got < 0) { return -1; }
-                    const ssize_t sent = write(dest_fd, buffer, got);
-                    if (sent == 0) { break; }
-                    if (sent < 0) { return -1; }
-                    st.st_size -= got;
-                }
-                #endif
-            //}
+            #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,33)
+            off_t offset = 0;
+            while (offset < st.st_size) {
+                const ssize_t got = sendfile(dest_fd, src_fd, &offset, st.st_size - offset);
+                if (got == 0) { break; }
+                if (got < 0) { return -1; }
+            }
+            #else
+            diagf(LOG_INFO, "sendfile not supported for files (Ironic), falling back to read/write");
+            char buffer[1024] = {};
+            while (st.st_size > 0) {
+                const size_t len = min(sizeof buffer, st.st_size);
+                const ssize_t got = read(src_fd, buffer, len);
+                if (got == 0) { break; }
+                if (got < 0) { return -1; }
+                const ssize_t sent = write(dest_fd, buffer, got);
+                if (sent == 0) { break; }
+                if (sent < 0) { return -1; }
+                st.st_size -= got;
+            }
+            #endif
             return st.st_size;
         }
+    }
+    return -1;
+}
+
+static ssize_t fd_redirect_from_file(const int dst_fd, const char *src_path) {
+    scope(const int src_fd = open(src_path, O_RDONLY), dst_fd >= 0 && close(dst_fd)) {
+        if (dst_fd < 0) {
+            return -1;
+        }
+        struct stat st = {};
+        if (fstat(src_fd, &st) < 0) {
+            return -1;
+        }
+        #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,33)
+        off_t offset = 0;
+        while (offset < st.st_size) {
+            const ssize_t got = sendfile(dst_fd, src_fd, &offset, st.st_size - offset);
+            if (got == 0) { break; }
+            if (got < 0) { return -1; }
+        }
+        #else
+        diagf(LOG_INFO, "sendfile not supported for files (Ironic), falling back to read/write");
+        char buffer[1024] = {};
+        while (st.st_size > 0) {
+            const size_t len = min(sizeof buffer, st.st_size);
+            const ssize_t got = read(src_fd, buffer, len);
+            if (got == 0) { break; }
+            if (got < 0) { return -1; }
+            const ssize_t sent = write(dst_fd, buffer, got);
+            if (sent == 0) { break; }
+            if (sent < 0) { return -1; }
+            st.st_size -= got;
+        }
+        #endif
+        return st.st_size;
     }
     return -1;
 }
@@ -284,4 +324,135 @@ static ssize_t copy_file(const char *src_path, const char *dst_path) {
     "  checksum: 0X%X\n"\
     "}"
 
+enum transaction_result {
+    TRNASACTION_FATAL_ERROR,
+    TRNASACTION_STARTED,
+    TRNASACTION_COMMITTED,
+    TRNASACTION_ROLLEDBACK,
+};
+
+static const char* transaction_state_to_cstr(const enum transaction_result state) {
+    switch (state) {
+    case TRNASACTION_FATAL_ERROR: return "Fatal Error";
+    case TRNASACTION_STARTED: return "Started";
+    case TRNASACTION_COMMITTED: return "Committed";
+    case TRNASACTION_ROLLEDBACK: return "Rolledback";
+    default: return "Invalid Enum Value";
+    }
+}
+
+static enum transaction_result dripbox_file_transaction_commit(const struct z_string dst_file) {
+    const struct z_string dst_backup = zconcat(dst_file, ".swp");
+
+    if (rename(dst_backup.data, dst_file.data) < 0) {
+        ediagf("rename %s, %s\n", dst_backup.data, dst_file.data);
+        return TRNASACTION_FATAL_ERROR;
+    }
+
+    diagf(LOG_INFO, "Swapped %s with %s\n", dst_backup.data, dst_file.data);
+    return TRNASACTION_COMMITTED;
+}
+
+static enum transaction_result dripbox_file_transaction_rollback(const struct z_string dst_file) {
+    const struct z_string dst_backup = zconcat(dst_file, ".swp");
+
+    if (unlink(dst_backup.data) < 0) {
+        ediagf("rename %s, %s\n", dst_backup.data, dst_file.data);
+        return TRNASACTION_FATAL_ERROR;
+    }
+
+    diagf(LOG_INFO, "Rolled back %s\n", dst_file.data);
+    return TRNASACTION_ROLLEDBACK;
+}
+
+
+static enum transaction_result dripbox_transaction_copy_file(const struct z_string src_path,
+                                                             const struct z_string dst_path)
+{
+    const struct z_string dst_backup_file = zconcat(dst_path, ".swp");
+
+    scope(const int dst_fd = open(dst_backup_file.data, O_CREAT | O_WRONLY), dst_fd >= 0 && close(dst_fd)) {
+        if (dst_fd < 0) {
+            ediagf("open %s, O_CREAT | O_WRONLY\n", dst_backup_file.data);
+            return TRNASACTION_FATAL_ERROR;
+        }
+
+        diagf(LOG_INFO, "Created %s\n", dst_backup_file.data);
+        if (fd_redirect_from_file(dst_fd, src_path.data) < 0) {
+            ediagf("copy_file %s, %s\n", src_path.data, dst_path.data);
+            return dripbox_file_transaction_rollback(dst_path);
+        }
+    }
+    return dripbox_file_transaction_commit(dst_path);
+}
+
+static bool uuidv7_try_new(struct uuid *uuid) {
+    const int err = getentropy(uuid->bytes, 16);
+    if (err != EXIT_SUCCESS) {
+        return false;
+    }
+
+    struct timespec ts;
+    const int ok = timespec_get(&ts, TIME_UTC);
+    if (ok == 0) {
+        return false;
+    }
+    const uint64_t timestamp = (uint64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+
+    uuid->bytes[0] = timestamp >> 40 & 0xFF;
+    uuid->bytes[1] = timestamp >> 32 & 0xFF;
+    uuid->bytes[2] = timestamp >> 24 & 0xFF;
+    uuid->bytes[3] = timestamp >> 16 & 0xFF;
+    uuid->bytes[4] = timestamp >> 8 & 0xFF;
+    uuid->bytes[5] = timestamp & 0xFF;
+
+    uuid->bytes[6] = uuid->bytes[6] & 0x0F | 0x70;
+    uuid->bytes[8] = uuid->bytes[8] & 0x3F | 0x80;
+
+    return true;
+}
+
+static struct uuid uuidv7_new() {
+    struct uuid uuid;
+    const bool success = uuidv7_try_new(&uuid);
+    assert(success && "uuidv7_try_new");
+    return uuid;
+}
+
+static bool uuidv7_comparer_equals(const void *a, const void *b) {
+    const struct uuid *uuid_a = (struct uuid *) a;
+    const struct uuid *uuid_b = (struct uuid *) b;
+    return uuid_a->integer == uuid_b->integer;
+}
+
+static int32_t uuidv7_hash(const void *element) {
+    const struct uuid *uuid = (struct uuid *) element;
+    int32_t hash = 0x12345678;
+    for (int i = 0; i < 16; i++) {
+        hash ^= uuid->bytes[i];
+        hash *= 0x5bd1e995;
+        hash ^= hash >> 15;
+    }
+    return hash;
+}
+
+static struct string36 uuidv7_to_string(const struct uuid uuid) {
+    struct string36 uuid_str;
+    const uint32_t data1 = *(uint64_t*)&uuid.bytes[0];
+    const uint16_t data2 = *(uint64_t*)&uuid.bytes[4];
+    const uint16_t data3 = *(uint64_t*)&uuid.bytes[6];
+    sprintf(uuid_str.data,
+    "%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+        data1, data2, data3,
+        uuid.bytes[8],
+        uuid.bytes[9],
+        uuid.bytes[10],
+        uuid.bytes[11],
+        uuid.bytes[12],
+        uuid.bytes[13],
+        uuid.bytes[14],
+        uuid.bytes[15]
+    );
+    return uuid_str;
+}
 #endif //DRIPBOX_COMMON_H

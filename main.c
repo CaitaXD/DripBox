@@ -3,8 +3,7 @@
 #include <Network.h>
 #include <stdlib.h>
 #include <string.h>
-#include <inotify_common.h>
-
+#include <array.h>
 #include "dripbox_common.h"
 #include "server.c"
 #include "client.c"
@@ -16,17 +15,19 @@ enum {
 };
 
 const char *USAGE_MSG =
-        "Usage: dripbox <client dripbox_username | server> [ip] [port] [OPTIONS]\n"
-        "\n"
-        "Arguments:\n"
-        "  client|server\t\tClient or server mode\n"
-        "  dripbox_username\t\t\tUsername to use\n"
-        "  ip\t\t\tip address to bind to (default: 0.0.0.0)\n"
-        "  port\t\t\tport to bind to (default: 25565)\n"
-        "\n"
-        "Options:\n"
-        "  -h | --help\t\tShow this help message\n";
+    "Usage: dripbox <client dripbox_username | server> [ip] [port] [OPTIONS]\n"
+    "\n"
+    "Arguments:\n"
+    "  client|server\t\tClient or server mode\n"
+    "  dripbox_username\t\t\tUsername to use\n"
+    "  ip\t\t\tip address to bind to (default: 0.0.0.0)\n"
+    "  port\t\t\tport to bind to (default: 25565)\n"
+    "\n"
+    "Options:\n"
+    "  -h | --help\t\tShow this help message\n";
 
+int foo(int a, int b);
+int len(char *a);
 int parse_commandline(const int argc, char *argv[argc]) {
     if (argc < 2) {
         return USAGE_COMMAND;
@@ -64,11 +65,8 @@ int parse_commandline(const int argc, char *argv[argc]) {
     return SUCCESS;
 }
 
-void print_network_info(void) {
-    struct ifaddrs *addrs;
-    getifaddrs(&addrs);
+void print_network_info(const struct ifaddrs *addrs) {
     const struct ifaddrs *tmp = addrs;
-
     while (tmp) {
         if (tmp->ifa_addr && tmp->ifa_addr->sa_family == AF_INET) {
             const struct sockaddr_in *pAddr = (struct sockaddr_in *) tmp->ifa_addr;
@@ -77,12 +75,8 @@ void print_network_info(void) {
 
         tmp = tmp->ifa_next;
     }
-
-    freeifaddrs(addrs);
 }
-
 int main(const int argc, char *argv[argc]) {
-
     for (int i = 0; i < argc; i++) {
         printf("%s ", argv[i]);
     }
@@ -96,13 +90,19 @@ int main(const int argc, char *argv[argc]) {
         printf("Starting DripBox %s\n", mode);
         printf("Ip=%s\n", inet_ntoa(*(struct in_addr *) &ip));
         printf("Port: %d\n", port);
-        print_network_info();
+
+        struct ifaddrs *addrs;
+        getifaddrs(&addrs);
+        print_network_info(addrs);
+        int ret = -1;
         if (mode_type == MODE_CLIENT) {
-            return client_main();
+            ret = client_main();
         }
         if (mode_type == MODE_SERVER) {
-            return server_main();
+            ret = server_main(addrs);
         }
+        freeifaddrs(addrs);
+        return ret;
     default: unreachable();
     }
 }

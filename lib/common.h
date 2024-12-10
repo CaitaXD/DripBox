@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+#include <PREPROCESSOR_CALCULUS.h>
 
 #define var __auto_type
 
@@ -19,21 +20,10 @@
 
 #define identity(x) x
 
-#define min2(a, b) ({\
-    var min_a = (a);\
-    var min_b = (b);\
-    min_a < min_b ? min_a : min_b;\
-})
-
-#define max2(a_, b_) ({\
-    var __max_a = (a_);\
-    var __max_b = (b_);\
-    __max_a > __max_b ? __max_a : __max_b;\
-})
-
 #define MACRO_SELECT1(_1, NAME, ...) NAME
 #define MACRO_SELECT2(_1, _2, NAME, ...) NAME
 #define MACRO_SELECT3(_1, _2, _3, NAME, ...) NAME
+#define MACRO_SELECT4(_1, _2, _3, _4, NAME, ...) NAME
 
 #define clamp(value__, min__, max__) min2(max2((value__), (min__)), (max__))
 
@@ -49,14 +39,27 @@
 #define LINE_VAR(name__) CONCAT(name__, __LINE__)
 
 #define scope(begin__, ...) \
-    for (bool LINE_VAR(__once_guard) = true; LINE_VAR(__once_guard); LINE_VAR(__once_guard) = false) \
-    for (begin__; LINE_VAR(__once_guard); LINE_VAR(__once_guard) = false, ({__VA_ARGS__;}))
+    for (bool LINE_VAR(_once_guard) = true; LINE_VAR(_once_guard); LINE_VAR(_once_guard) = false) \
+    for (begin__; LINE_VAR(_once_guard); LINE_VAR(_once_guard) = false, ## __VA_ARGS__) \
+    for (;LINE_VAR(_once_guard); LINE_VAR(_once_guard) = false)
 
 #define finalizer(expression__) scoped_expression(, expression__)
 
 #define STACK_BUFFER(size__, ...) ((uint8_t[(size__)]){ __VA_ARGS__ })
 
 #define unreachable() __builtin_unreachable()
+
+#define SVLEN(sv__) (SV((sv__)).length)
+
+#define IS_INDEXABLE(arg) (sizeof(arg[0]))
+#define IS_ARRAY_LIKE(arg) (((void *) &arg) == ((void *) arg))
+#define IS_ARRAY(arg) (IS_INDEXABLE(arg) && IS_ARRAY_LIKE(arg))
+
+#define ARRAY_LENGTH(array__) ({\
+    assert(IS_ARRAY(array__));\
+    (sizeof(array__)/sizeof(array__[0]));\
+})
+
 
 enum log_level {
     LOG_VERBOSE,
@@ -82,14 +85,28 @@ static char *timestamp() {
     return __timestamp_buffer;
 }
 
+static char *log_level_cstr(const enum log_level level) {
+    switch (level) {
+    case LOG_VERBOSE: return "VERBOSE";
+    case LOG_DEBUG: return "DEBUG";
+    case LOG_INFO: return "INFO";
+    case LOG_WARNING: return "WARNING";
+    case LOG_ERROR: return "ERROR";
+    default: return "INVALID";
+    }
+}
+
 #define diagf(LOG_LEVEL__, fmt__, ...)\
-  ({\
+({\
     if (log_file == NULL) { log_file = stdout; }\
     var log_level = (LOG_LEVEL__);\
     if (log_level >= MIN_LOG_LEVEL) {\
-        fprintf(log_file, "[%s] [%s:%d] " fmt__ "\n", timestamp(), __FILE__, __LINE__, ## __VA_ARGS__);\
+        fprintf(log_file, "[%s] [%s:%d] [%s] " fmt__, timestamp(), __FILE__, __LINE__, log_level_cstr(log_level), ## __VA_ARGS__);\
     }\
-  })
+})
+#define diag(LOG_LEVEL__, msg__) diagf(LOG_LEVEL__, "%s\n", msg__)
+#define ediagf(fmt__, ...) diagf(LOG_ERROR, "%s: "fmt__, strerror(errno), ## __VA_ARGS__)
+#define ediag(msg__) diagf(LOG_ERROR, "%s: %s\n", strerror(errno), msg__)
 
 static size_t next_power_of_two(const size_t value) {
     size_t result = 1;
@@ -132,7 +149,7 @@ static int next_prime(const int n) {
 
 static int32_t string_hash(const void *str_ref) {
     const char *str = *(char **) str_ref;
-    int32_t hash = 0x12345678;
+    uint32_t hash = 0x12345678;
     for (; *str; ++str) {
         hash ^= *str;
         hash *= 0x5bd1e995;
@@ -141,7 +158,7 @@ static int32_t string_hash(const void *str_ref) {
     return hash;
 }
 
-static bool string_equals(const void *a, const void *b) {
+static bool string_comparer_equals(const void *a, const void *b) {
     const char *str_a = *(char **) a;
     const char *str_b = *(char **) b;
     return strcmp(str_a, str_b) == 0;
@@ -149,61 +166,66 @@ static bool string_equals(const void *a, const void *b) {
 
 #define size_and_address(struct__) sizeof(struct__), (void*)&(struct__)
 
-#define MAP0(fn, dummy)
-#define MAP1(fn, a) fn(a)
-#define MAP2(fn, a, b) fn(a), fn(b)
-#define MAP3(fn, a, b, c) fn(a), fn(b), fn(c)
-#define MAP4(fn, a, b, c, d) fn(a), fn(b), fn(c), fn(d)
-#define MAP5(fn, a, b, c, d, e) fn(a), fn(b), fn(c), fn(d), fn(e)
-#define MAP6(fn, a, b, c, d, e, f) fn(a), fn(b), fn(c), fn(d), fn(e) ,fn(f)
-
-#define FOLD0(fn, seed) seed
-#define FOLD1(fn, seed, a) fn(seed, a)
-#define FOLD2(fn, seed, a, b) fn(fn(seed, a), b)
-#define FOLD3(fn, seed, a, b, c) fn(fn(fn(seed, a), b), c)
-#define FOLD4(fn, seed, a, b, c, d) fn(fn(fn(fn(seed, a), b), c), d)
-#define FOLD5(fn, seed, a, b, c, d, e) fn(fn(fn(fn(fn(seed, a), b), c), d), e)
-#define FOLD6(fn, seed, a, b, c, d, e, f) fn(fn(fn(fn(fn(fn(seed, a), b), c), d), e))
-
-#define FOLDR0(fn, seed) seed
-#define FOLDR1(fn, seed, a) fn(seed, a)
-#define FOLDR2(fn, seed, a, b) fn(seed, fn(a, b))
-#define FOLDR3(fn, seed, a, b, c) fn(seed, fn(a, fn(b, c)))
-#define FOLDR4(fn, seed, a, b, c, d) fn(seed, fn(a, fn(b, fn(c, d))))
-#define FOLDR5(fn, seed, a, b, c, d, e) fn(seed, fn(a, fn(b, fn(c, fn(d, e)))))
-#define FOLDR6(fn, seed, a, b, c, d, e, f) fn(seed, fn(a, fn(b, fn(c, fn(d, fn(e, f))))))
-
-#define ARGS_COUNT_(dummy, x6, x5, x4, x3, x2, x1, x0, ...) x0
-#define ARGS_COUNT(...) ARGS_COUNT_(dummy, ##__VA_ARGS__, 6, 5, 4, 3, 2, 1, 0)
-
-#define MAP__(fn, n, ...) MAP##n(fn, __VA_ARGS__)
-#define MAP_(fn, n, ...) MAP__(fn, n, __VA_ARGS__)
-#define MAP(fn, ...) MAP_(fn, ARGS_COUNT(__VA_ARGS__), __VA_ARGS__)
-
-#define FOLD__(fn, seed, n, ...) FOLD##n(fn, seed, __VA_ARGS__)
-#define FOLD_(fn, seed, n, ...) FOLD__(fn, seed, n, __VA_ARGS__)
-#define FOLD(fn, seed, ...) FOLD_(fn, seed, ARGS_COUNT(__VA_ARGS__), __VA_ARGS__)
-
-#define FOLDR__(fn, seed, n, ...) FOLDR##n(fn, seed, __VA_ARGS__)
-#define FOLDR_(fn, seed, n, ...) FOLDR__(fn, seed, n, __VA_ARGS__)
-#define FOLDR(fn, seed, ...) FOLDR_(fn, seed, ARGS_COUNT(__VA_ARGS__), __VA_ARGS__)
-
-#define max(...) FOLD(max2, __VA_ARGS__)
-#define min(...) FOLD(min2, __VA_ARGS__)
-
-#define IS_INDEXABLE(arg) (sizeof(arg[0]))
-#define IS_ARRAY_LIKE(arg) (((void *) &arg) == ((void *) arg))
-#define IS_ARRAY(arg) (IS_INDEXABLE(arg) && IS_ARRAY_LIKE(arg))
-
+/// Checks if the given value is zero initialized aka all of its bytes are zero
+/// @param x: The value to check
+/// @return True if the value is zero initialized, false otherwise
 #define zero_initialized(x) ({\
     typeof(x) _x = (x);\
     memcmp(&_x, &((typeof(_x)){}), sizeof _x) == 0;\
 })
 
-// #define lambda(return_type, function_body) \
-// ({ \
-//     return_type _fn_ function_body \
-//     _fn_; \
-// })
+#define zero(type__) (typeof(type__)){0}
 
+#define lambda(return_type, function_body) \
+({ \
+    return_type _fn_ function_body \
+    _fn_; \
+})
+
+/// Creates a stack array of size 1 with the given value in it
+/// @param value__: The value to store in the array
+/// @return A stack array of size 1 with the given value in it
+///
+/// example:
+///
+/// int *ptr = &1; // Absolutly not ❌
+///
+/// int *ptr = REF(1); // A okay ✅
+#define REF(value__) ((typeof(value__)[1]){(value__)})
+
+/// Creates a stack array of size 1 with the given value in it, If the value is an array decays it into a pointer
+/// @param array__: The value to store in the array
+/// @return A stack array of size 1 with the given value in it
+///
+/// example:
+///
+/// typeof(REF("ABC")) == char(*)[4]
+///
+/// typeof(REFDECAY("ABC")) == char*
+#define REFDECAY(array__) ((typeof(({ array__; }))[1]){(array__)})
+
+#define min2(a, b) ({\
+    var min_a = (a);\
+    var min_b = (b);\
+    min_a < min_b ? min_a : min_b;\
+})
+
+#define max2(a_, b_) ({\
+    var __max_a = (a_);\
+    var __max_b = (b_);\
+    __max_a > __max_b ? __max_a : __max_b;\
+})
+
+#define TUPLE_LAZY(...)\
+    IF(HAS_ARGS(__VA_ARGS__))\
+    (\
+        DEFER2(TUPLE_LAZY_REC)() (TAIL(__VA_ARGS__))\
+        HEAD(__VA_ARGS__) CONCAT(item, ARGS_COUNT(__VA_ARGS__));\
+    )
+#define TUPLE_LAZY_REC() TUPLE_LAZY
+
+#define tuple(...) struct { EVAL(TUPLE_LAZY(ARGS_REVERSE(__VA_ARGS__))) }
+#define packed_tuple(...) struct { EVAL(TUPLE_LAZY(ARGS_REVERSE(__VA_ARGS__))) } __attribute__((packed))
+
+#define tuple_size(...) sizeof(struct { EVAL(TUPLE_LAZY(__VA_ARGS__)) })
 #endif //COMMON_H

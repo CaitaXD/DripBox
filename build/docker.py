@@ -129,7 +129,7 @@ elif args.command == "run" and args.mode == "server":
         os.system(f"cd .. && "
                   f"docker rm -f {container_name}-server"
                   )
-    os.system(f"docker run -d --name {container_name}-{args.mode} --network bridge -t {container_name}-{args.mode}")
+    os.system(f"docker run --name {container_name}-{args.mode} --network bridge -t {container_name}-{args.mode}")
 
 elif args.command == "run" and args.mode == "client":
     username = args.username.lower().replace(" ", "-")
@@ -139,7 +139,7 @@ elif args.command == "run" and args.mode == "client":
                   f"docker rm -f {container_name}-{username}"
                   )
     os.system(f"docker run "
-              f"-d --name {container_name}-{username} "
+              f"--name {container_name}-{username} "
               f"--network bridge "
               f"-t {container_name}-{username}"
               )
