@@ -126,7 +126,7 @@ int client_main() {
         dripbox_client_command_dispatch(&s, cmd);
     }
 
-    //pthread_join(network_worker_id, NULL);
+    pthread_join(network_worker_id, NULL);
     //pthread_join(inotify_watcher_worker_id, NULL);
 
     return 0;
