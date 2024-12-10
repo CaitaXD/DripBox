@@ -33,6 +33,15 @@ static void* iterator_first_impl(struct iterator *it)
   return NULL;
 }
 
+static void iterator_skip(struct iterator *it, int skip) {
+    while (skip-- > 0) {
+        if(!it->next(it)) {
+            assert(false && "Iterator is empty");
+            return;
+        }
+    }
+}
+
 static bool iterator_contains_impl(struct iterator *it, const void *element,
                                    const bool (*equals)(const void *, const void *))
 {

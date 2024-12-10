@@ -3,7 +3,6 @@
 #include <Network.h>
 #include <stdlib.h>
 #include <string.h>
-#include <array.h>
 #include "dripbox_common.h"
 #include "server.c"
 #include "client.c"

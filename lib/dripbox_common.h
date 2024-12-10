@@ -20,18 +20,15 @@ enum msg_type {\
     MSG_ADD_REPLICA = 7,
     MSG_ERROR = 8,
 };
-
 struct uuid {
     union {
         uint8_t bytes[16];
         __uint128_t integer;
     };
 };
-
 struct string36 {
     char data[37];
 };
-
 struct dripbox_file_stat {
     char name[256]; //file name
     time_t ctime;
@@ -39,41 +36,32 @@ struct dripbox_file_stat {
     time_t mtime;
     uint8_t checksum;
 } __attribute__((packed));
-
 struct dripbox_msg_header {
     uint8_t version;
     uint8_t type;
 } __attribute__((packed));
-
 struct dripbox_login_header {
     uint64_t length;
 } __attribute__((packed));
-
 struct dripbox_upload_header {
     uint64_t file_name_length;
     uint64_t payload_length;
 } __attribute__((packed));
-
 struct dripbox_bytes_header {
     uint64_t length;
 } __attribute__((packed));
-
 struct dripbox_download_header {
     uint64_t file_name_length;
 } __attribute__((packed));
-
 struct dripbox_delete_header {
     uint64_t file_name_length;
 } __attribute__((packed));
-
 struct dripbox_error_header {
     uint64_t error_length;
 } __attribute__((packed));
-
 struct dripbox_list_header {
     uint64_t file_list_length;
 } __attribute__((packed));
-
 struct dripbox_add_replica_header {
     struct uuid server_uuid;
 } __attribute__((packed));

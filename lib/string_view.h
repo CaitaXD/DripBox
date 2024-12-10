@@ -82,7 +82,7 @@ static struct sv_pair (sv_token)(const struct string_view string,
     return pair;
 }
 
-#define sv_token(string__, delim__) ((sv_token)(SV(string__), SV(delim__))).data
+#define sv_token(string__, delim__) (((sv_token)(SV((string__)), SV((delim__)))).data)
 
 static struct string_view sv_new(const size_t len, char data[len]) {
     return (struct string_view){
@@ -125,8 +125,13 @@ static bool (sv_split_next)(struct string_view *sv, const struct string_view del
 #define sv_split_next(sv__, delim__, out__) (sv_split_next)(sv__, SV(delim__), out__)
 
 struct sv_split_iterator {
-    bool (*next)(struct sv_split_iterator*);
-    struct string_view *(*current)(struct sv_split_iterator*);
+    union {
+        struct iterator iterator;
+        struct {
+            bool (*next)(struct sv_split_iterator*);
+            struct string_view *(*current)(struct sv_split_iterator*);
+        };
+    };
     struct string_view sv;
     struct string_view delim;
     struct string_view _current;
@@ -206,14 +211,14 @@ struct z_string {
 };
 
 static struct string_view sv_z(const struct z_string string) {
-    return (struct string_view){
+    return (struct string_view) {
         .data = string.data,
         .length = string.length,
     };
 }
 
 static struct z_string z_cstr(char *cstr) {
-    return (struct z_string){
+    return (struct z_string) {
         .data = cstr,
         .length = strlen(cstr),
     };
