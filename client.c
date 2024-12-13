@@ -13,6 +13,16 @@
 #include  "string_view.h"
 #include "array.h"
 
+typedef tuple(struct socket, uint32_t) socket_ip_tuple_t;
+struct dripbox_client {
+    struct socket leader_socket;
+    uint32_t leader_in_addr;
+    dynamic_array(socket_ip_tuple_t) replica_sockets;
+    struct dripbox_msg_header discovery_probe;
+    struct monitor m_replicas;
+    enum election_state election_state;
+} dripbox_client;
+
 struct string_view dripbox_username = {};
 bool dripbox_client_quit = false;
 
@@ -55,7 +65,7 @@ static const struct string_view cmd_shell = {
     .length = sizeof "shell" - 1,
 };
 
-static bool fd_pending(const int fd) {
+static bool fd_pending_read(const int fd) {
     struct pollfd pfd = {
         .fd = fd,
         .events = POLLIN,
@@ -83,6 +93,10 @@ static void dripbox_client_handle_server_message(struct socket *s);
 
 static int dripbox_client_list_server(struct socket *s, bool update_client_list);
 
+static void* client_discover_servers_worker(void *arg);
+
+static void dripbox_ensure_sock(void);
+
 void dripbox_client_list(struct string_view sync_dir_path);
 
 void dripbox_cleint_inotify_dispatch(struct socket *s, struct inotify_event_t inotify_event);
@@ -90,7 +104,7 @@ void dripbox_cleint_inotify_dispatch(struct socket *s, struct inotify_event_t in
 void *inotify_watcher_worker(const void *args);
 
 int client_main() {
-    pthread_t inotify_watcher_worker_id, network_worker_id;
+    pthread_t inotify_watcher_worker_id, network_worker_id, client_discover_servers_worker_id;
     struct stat dir_stat = {};
     if (stat(g_sync_dir_path.data, &dir_stat) < 0) {
         mkdir(g_sync_dir_path.data, S_IRWXU | S_IRWXG | S_IRWXO);
@@ -112,18 +126,29 @@ int client_main() {
         return -1;
     }
 
-    pthread_create(&inotify_watcher_worker_id, NULL, (void *) inotify_watcher_worker, &s);
-    pthread_create(&network_worker_id, NULL, (void *) dripbox_client_network_worker, &s);
+    dripbox_client = (struct dripbox_client) {
+        .leader_socket = s,
+        .leader_in_addr = socket_address_get_in_addr(&server_endpoint),
+        .replica_sockets = (void*)dynamic_array_new(socket_ip_tuple_t, &mallocator),
+        .m_replicas = MONITOR_INITIALIZER,
+        .discovery_probe = { .version = 1, .type = DRIP_MSG_LOGIN },
+    };
+
+    pthread_create(&inotify_watcher_worker_id, NULL, (void *) inotify_watcher_worker, &dripbox_client.leader_socket);
+    pthread_create(&network_worker_id, NULL, (void *) dripbox_client_network_worker, &dripbox_client.leader_socket);
+    pthread_create(&client_discover_servers_worker_id, NULL, (void *) client_discover_servers_worker, &dripbox_client);
 
     // ReSharper disable once CppDFALoopConditionNotUpdated
     while (!dripbox_client_quit) {
-        if (!fd_pending(STDIN_FILENO)) continue;
+        dripbox_ensure_sock();
+
+        if (!fd_pending_read(STDIN_FILENO)) continue;
 
         const struct string_view buffer = sv_stack(1024);
         const struct string_view cmd = sv_cstr(fgets(buffer.data, buffer.length, stdin));
         if (cmd.length == 0) continue;
-        //using_monitor(&g_client_monitor)
-        dripbox_client_command_dispatch(&s, cmd);
+
+        dripbox_client_command_dispatch(&dripbox_client.leader_socket, cmd);
     }
 
     pthread_join(network_worker_id, NULL);
@@ -187,17 +212,19 @@ static void dripbox_client_command_dispatch(struct socket *s, const struct strin
 }
 
 void *dripbox_client_network_worker(const void *args) {
-    struct socket *s = (struct socket *) args;
     // ReSharper disable once CppDFALoopConditionNotUpdated
     while (!dripbox_client_quit) {
-        s->error.code = 0;
-        
-        if (socket_pending(s, 0)) {
-            using_monitor(&g_client_monitor) dripbox_client_handle_server_message(s);
+        struct socket *s = &dripbox_client.leader_socket;
+        if (s->error.code == EAGAIN) s->error.code = 0;
+        if (s->error.code != 0 || s->sock_fd == -1) continue;
+        dripbox_ensure_sock();
+        if (socket_pending_read(s, 0)) {
+            using_monitor(&g_client_monitor) {
+                dripbox_client_handle_server_message(s);
+            }
         }
     }
-
-    close(s->sock_fd);
+    socket_close(&dripbox_client.leader_socket);
     return NULL;
 }
 
@@ -207,7 +234,7 @@ int dripbox_client_login(struct socket *s, const struct string_view username) {
 
     socket_write_struct(s, ((struct dripbox_msg_header){
         .version = 1,
-        .type = MSG_LOGIN,
+        .type = DRIP_MSG_LOGIN,
     }), 0);
 
     socket_write_struct(s, ((struct dripbox_login_header){
@@ -252,7 +279,7 @@ int dripbox_client_upload(struct socket *s, char *file_path) {
 
     socket_write_struct(s, ((struct dripbox_msg_header) {
         .version = 1,
-        .type = MSG_UPLOAD,
+        .type = DRIP_MSG_UPLOAD,
     }), 0);
 
     socket_write_struct(s, ((struct dripbox_upload_header) {
@@ -286,7 +313,7 @@ int dripbox_delete_from_server(struct socket *s, char *file_path) {
 
     socket_write_struct(s, ((struct dripbox_msg_header) {
         .version = 1,
-        .type = MSG_DELETE,
+        .type = DRIP_MSG_DELETE,
     }), 0);
 
     socket_write_struct(s, ((struct dripbox_delete_header) {
@@ -312,7 +339,7 @@ int dripbox_client_download(struct socket *s, char *file_path) {
 
     socket_write_struct(s, ((struct dripbox_msg_header) {
         .version = 1,
-        .type = MSG_DOWNLOAD,
+        .type = DRIP_MSG_DOWNLOAD,
     }), 0);
 
     socket_write_struct(s, ((struct dripbox_download_header) {
@@ -322,14 +349,8 @@ int dripbox_client_download(struct socket *s, char *file_path) {
     socket_write(s, sv_deconstruct(*file_name), 0);
 
     const var msg_header = socket_read_struct(s, struct dripbox_msg_header, 0);
-
-    if (!dripbox_expect_version(s, msg_header.version, 1)) {
-        return -1;
-    }
-
-    if (!dripbox_expect_msg(s, msg_header.type, MSG_BYTES)) {
-        return -1;
-    }
+    if (!dripbox_expect_version(s, msg_header.version, 1)) return -1;
+    if (!dripbox_expect_msg(s, msg_header.type, DRIP_MSG_BYTES)) return -1;
 
     const var bytes_header = socket_read_struct(s, struct dripbox_bytes_header, 0);
     diagf(LOG_INFO, "Downloading "sv_fmt" Size=%ld\n",
@@ -494,25 +515,34 @@ send_file:
 
 void dripbox_client_handle_server_message(struct socket *s) {
     const var msg_header = socket_read_struct(s, struct dripbox_msg_header, 0);
-
-    if (!dripbox_expect_version(s, msg_header.version, 1)) {
-        return;
-    }
+    if (!dripbox_expect_version(s, msg_header.version, 1)) return;
 
     diagf(LOG_INFO, "Message { Version: 0X%X Type:'%s' }\n", msg_header.version, msg_type_cstr(msg_header.type));
-
     switch (msg_header.type) {
-    case MSG_NOOP:
+    case DRIP_MSG_NOOP:
         break;
-    case MSG_UPLOAD: {
+    case DRIP_MSG_UPLOAD: {
         dripbox_handle_server_upload(s);
         break;
     }
-    case MSG_DELETE: {
+    case DRIP_MSG_DELETE: {
         dripbox_handle_server_delete(s);
         break;
     }
-    case MSG_ERROR: {
+    case DRIP_MSG_COORDINATOR: {
+        const var coordinator_header = socket_read_struct(s, struct dripbox_coordinator_header, 0);
+        for (int i = 0; i < dynamic_array_length(dripbox_client.replica_sockets); i++) {
+            const socket_ip_tuple_t *socket_ip_tuple = &dripbox_client.replica_sockets[i];
+            if (socket_ip_tuple->item2 == coordinator_header.coordinator_inaddr) {
+                dripbox_client.leader_socket = socket_ip_tuple->item1;
+                dripbox_client.leader_in_addr = socket_ip_tuple->item2;
+                dripbox_client.election_state = ELECTION_STATE_NONE;
+                diagf(LOG_INFO, "Found coordinator\n");
+                break;
+            }
+        }
+    } break;
+    case DRIP_MSG_ERROR: {
         const struct string_view sv_error = dripbox_read_error(s);
         diagf(LOG_ERROR, "Dripbox error: "sv_fmt"\n", (int)sv_deconstruct(sv_error));
         break;
@@ -547,12 +577,12 @@ int dripbox_client_list_server(struct socket *s, const bool update_client_list) 
 
     socket_write_struct(s, ((struct dripbox_msg_header) {
         .version = 1,
-        .type = MSG_LIST,
+        .type = DRIP_MSG_LIST,
     }), 0);
 
     const var msg_header = socket_read_struct(s, struct dripbox_msg_header, 0);
     if (!dripbox_expect_version(s, msg_header.version, 1)) return -1;
-    if (!dripbox_expect_msg(s, msg_header.type, MSG_LIST)) return -1;
+    if (!dripbox_expect_msg(s, msg_header.type, DRIP_MSG_LIST)) return -1;
 
     const var upload_header = socket_read_struct(s, struct dripbox_list_header, 0);
     const int server_stats_count = upload_header.file_list_length;
@@ -630,4 +660,92 @@ int dripbox_client_list_server(struct socket *s, const bool update_client_list) 
         }
     }
     return 0;
+}
+
+void* client_discover_servers_worker(void *arg) {
+    struct dripbox_client *dripbox_client = arg;
+    struct socket multicast_sock = socket_new();
+    struct socket_address remote = ipv4_endpoint(0, 0);
+    const struct socket_address multicast_addr = ipv4_endpoint(DRIPBOX_REPLICA_MULTICAST_GROUP, DRIPBOX_REPLICA_PORT);
+
+    socket_open(&multicast_sock, AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    socket_reuse_address(&multicast_sock, true);
+    socket_bind(&multicast_sock, &ipv4_endpoint(INADDR_ANY, DRIPBOX_REPLICA_PORT));
+    socket_join_multicast_group(&multicast_sock, (struct ip_mreq) {
+        .imr_multiaddr = htonl(DRIPBOX_REPLICA_MULTICAST_GROUP),
+        .imr_interface = INADDR_ANY,
+    });
+    socket_option(&multicast_sock, IPPROTO_IP, IP_MULTICAST_LOOP, false);
+
+    socket_write_struct_to(&multicast_sock, dripbox_client->discovery_probe, &multicast_addr, 0);
+    while (!dripbox_client_quit) {
+        typedef typeof(dripbox_server.discovery_probe) discovery_probe_t;
+        const var discovery_response = socket_read_struct_from(&multicast_sock, discovery_probe_t, &remote, 0);
+        if (socket_address_get_in_addr(&remote) == dripbox_client->leader_in_addr) continue;
+
+        if(!dripbox_expect_version(&multicast_sock, discovery_response.item1.version, 1)) continue;
+        if(!dripbox_expect_msg(&multicast_sock, discovery_response.item1.type, DRIP_MSG_ADD_REPLICA)) continue;
+
+        using_monitor(&dripbox_client->m_replicas) {
+            struct socket replica_socket = socket_new();
+            socket_open(&replica_socket, AF_INET, SOCK_STREAM, IPPROTO_TCP);
+            socket_reuse_address(&replica_socket, true);
+            socket_adress_set_port(&remote, port);
+            socket_connect(&replica_socket, &remote);
+            dripbox_client_login(&replica_socket, dripbox_username);
+            if (replica_socket.error.code != 0) {
+                ediag("client_discover_servers_worker");
+                continue;
+            }
+            diagf(LOG_INFO, "Connected to replica\n");
+            dynamic_array_push(&dripbox_client->replica_sockets, ((socket_ip_tuple_t) {
+                .item1 = replica_socket,
+                .item2 = ((struct sockaddr_in*)remote.sa)->sin_addr.s_addr,
+            }));
+        }
+    }
+    return NULL;
+}
+
+
+void dripbox_ensure_sock(void) {
+    struct socket *s = &dripbox_client.leader_socket;
+    const bool badsock = socket_pending_event(s, POLLHUP | POLLNVAL | POLLERR, 0);
+    if (badsock || s->sock_fd == -1  || s->error.code != 0) using_monitor(&g_client_monitor) {
+        if (dripbox_client.election_state == ELECTION_STATE_NONE) {
+            // Send election message to all replicas
+            dripbox_client.election_state = ELECTION_STATE_RUNNING;
+            socket_close(s);
+            for (int i = 0; i < dynamic_array_length(dripbox_client.replica_sockets); i++) {
+                socket_ip_tuple_t *replica_tuple = &dripbox_client.replica_sockets[i];
+                struct socket *replica_sock = &replica_tuple->item1;
+                if (replica_sock->sock_fd == -1 || replica_sock->error.code != 0) {
+                    continue;
+                }
+                if (socket_pending_event(replica_sock, POLLHUP | POLLNVAL | POLLERR, 0)) {
+                    socket_close(replica_sock);
+                    continue;
+                }
+                socket_write_struct(replica_sock, ((struct dripbox_msg_header) {
+                                        .version = 1,
+                                        .type = DRIP_MSG_ELECTION,
+                                        }), MSG_NOSIGNAL);
+                diag(LOG_INFO, "Sent election to replica");
+            }
+            // Wait for coordinator message
+            dripbox_client.election_state = ELECTION_STATE_WAITING_COORDINATOR;
+            for (int i = 0; i < dynamic_array_length(dripbox_client.replica_sockets); i++) {
+                socket_ip_tuple_t *replica_tuple = &dripbox_client.replica_sockets[i];
+                struct socket *replica_sock = &replica_tuple->item1;
+                if (replica_sock->sock_fd == -1 || replica_sock->error.code != 0) {
+                    continue;
+                }
+                if (socket_pending_event(replica_sock, POLLHUP | POLLNVAL | POLLERR, 0)) {
+                    socket_close(replica_sock);
+                    continue;
+                }
+                dripbox_client_handle_server_message(replica_sock);
+            }
+        }
+    }
 }

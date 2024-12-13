@@ -30,9 +30,21 @@ enum { CO_DEFAULT_STACK_SIZE = 512 };
     .stack = REF(allocator_stack_arena((co_stack_size__))),\
 }
 
-#define co_malloc(co_stack_size__) (struct coroutine) { \
-    .stack = REF(allocator_malloc_arena((co_stack_size__))),\
-}
+#define co_new(allocator__, stack_size__) ({\
+    struct allocator *_allocator = (allocator__);\
+    size_t _size = (stack_size__);\
+    void *_buffer = allocator_alloc(_allocator, _size);\
+    struct allocator_arena *_arena = allocator_alloc(_allocator, sizeof(struct allocator_arena));\
+    *_arena = allocator_arena_init(_buffer, _size);\
+    (struct coroutine) { .stack = _arena };\
+})
+
+#define co_delete(allocator__, co__) ({\
+    var _co = (co__);\
+    var a = (allocator__);\
+    allocator_dealloc(a, (void*)_co->stack->min_address);\
+    allocator_dealloc(a, _co->stack);\
+})
 
 #define co_temp(co_stack_size__) REF(({\
     var temp_arena = allocator_temp_arena();\
@@ -42,39 +54,6 @@ enum { CO_DEFAULT_STACK_SIZE = 512 };
         .stack = frame,\
     };\
 }))
-
-#define co_detach_on_init1(co__, type__)\
-    (((co__)->co_state == CO_CREATED) \
-        ? (type__*)allocator_arena_detach_bytes((co__)->stack, -sizeof(type__))\
-        : (type__*)NULL)
-
-#define co_detach_on_init2(co__, type__, CLITERAL)\
-    (((co__)->co_state == CO_CREATED) \
-        ? (type__*)memcpy(allocator_arena_detach_bytes((co__)->stack, -sizeof(type__)), &CLITERAL, sizeof (type__)) \
-        : (type__*)NULL)
-
-#define co_detach1(co__, type__) \
-    ((type__*)allocator_arena_detach_bytes((co__)->stack, -sizeof(type__)))
-
-#define co_detach2(co__, type__, CLITERAL) \
-    ((type__*)memcpy(allocator_arena_detach_bytes((co__)->stack, -sizeof(type__)), &CLITERAL, sizeof (type__)))
-
-#define co_detach(...) \
-    MACRO_SELECT3(__VA_ARGS__, co_detach2, co_detach1, co_detach1, co_detach1)(__VA_ARGS__)
-
-/// Allocates memory for a variable in the coroutine scope when the coroutine is created
-///
-/// Reserves from the end of the coroutine stack
-///
-/// This does not save the variable in the coroutine stack
-///
-/// You still need to save the variable in the coroutine stack
-///
-/// @param co__: struct coroutine* -> The coroutine handle
-/// @param type__: any -> The type of the variable
-/// @param CLITERAL: any -> The value to store in the variable
-/// @return The value of the variable
-#define co_detach_on_init(...) MACRO_SELECT3(__VA_ARGS__, co_detach_on_init2, co_detach_on_init1, co_detach_on_init1, co_detach_on_init1)(__VA_ARGS__)
 
 /// Initializes a variable only when coroutine is created
 ///
@@ -88,6 +67,8 @@ enum { CO_DEFAULT_STACK_SIZE = 512 };
 #define co_assign_on_init(co__, value__) \
     (((co__)->co_state == CO_CREATED) ? (value__) : zero(typeof(value__)))
 
+#define co_on_init(co__) if ((co__)->co_state == CO_CREATED)
+
 #define CO_SAVE(co__, ...)\
 IF(HAS_ARGS(__VA_ARGS__))\
 (\
@@ -99,6 +80,7 @@ IF(HAS_ARGS(__VA_ARGS__))\
             _co->stack = memcpy(allocator_arena_detach_bytes(&_arena, sizeof _arena), &_arena, sizeof _arena);\
         }\
         T* _var = allocator_arena_alloc_aligned(_co->stack, sizeof(T), __alignof(T));\
+        assert(_var && "Buy more RAM!");\
         *_var = HEAD(__VA_ARGS__);\
     });\
     DEFER2(CO_SAVE_REC)() (co__, TAIL(__VA_ARGS__))\
@@ -279,11 +261,11 @@ static void **co_wait_all(array(struct coroutine) coroutines, array(void*) resul
     return results;
 }
 
-static void* co_sleep(struct coroutine *co, int seconds) {
+static void* co_delay_seconds(struct coroutine *co, int seconds) {
     const time_t now = time(NULL);
     time_t start = now;
     time_t elapsed = 0;
-    COROUTINE(co, co_sleep, seconds, start, elapsed) {
+    COROUTINE(co, co_delay_seconds, seconds, start, elapsed) {
         while (elapsed < seconds) {
             elapsed = now - start;
             co_yield(co);
@@ -315,25 +297,6 @@ static void* co_queue_dispatch(struct coroutine *co, struct queue coroutines) {
         }
     }
     return NULL;
-}
-
-static struct coroutine* co_detach_nested_coroutine_on_init(const struct coroutine *co, const ssize_t size) {
-    if (co->co_state == CO_CREATED) {
-        struct allocator_arena *nested_stack = allocator_arena_detach_bytes(co->stack, -sizeof(struct allocator_arena));
-        *nested_stack = allocator_arena_detach_frame(co->stack, -(size - sizeof(struct allocator_arena)));
-        return co_detach_on_init(co, struct coroutine, (struct coroutine) {
-            .stack = nested_stack
-        });
-    }
-    return NULL;
-}
-
-static struct coroutine* co_detach_nested_coroutine(const struct coroutine *co, const ssize_t size) {
-    struct allocator_arena *nested_stack = allocator_arena_detach_bytes(co->stack, -sizeof(struct allocator_arena));
-    *nested_stack = allocator_arena_detach_frame(co->stack, -(size - sizeof(struct allocator_arena)));
-    return co_detach_on_init(co, struct coroutine, (struct coroutine) {
-        .stack = nested_stack
-    });
 }
 
 #endif //COROUTINE_H

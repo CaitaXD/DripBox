@@ -9,23 +9,52 @@
 #include <unistd.h>
 #include <linux/version.h>
 
-enum msg_type {\
-    MSG_NOOP = 0,
-    MSG_LOGIN = 1,
-    MSG_UPLOAD = 2,
-    MSG_DOWNLOAD = 3,
-    MSG_DELETE = 4,
-    MSG_LIST = 5,
-    MSG_BYTES = 6,
-    MSG_ADD_REPLICA = 7,
-    MSG_ERROR = 8,
+#define DRIPBOX_REPLICA_PORT 6969
+#define DRIPBOX_REPLICA_ENDPOINT ipv4_any(DRIPBOX_REPLICA_PORT)
+#define DRIPBOX_REPLICA_MULTICAST_GROUP ipv4_address(239, 192, 1, 1)
+
+enum drip_message_type {\
+    DRIP_MSG_NOOP = 0,
+    DRIP_MSG_LOGIN = 1,
+    DRIP_MSG_UPLOAD = 2,
+    DRIP_MSG_DOWNLOAD = 3,
+    DRIP_MSG_DELETE = 4,
+    DRIP_MSG_LIST = 5,
+    DRIP_MSG_BYTES = 6,
+    DRIP_MSG_ADD_REPLICA = 7,
+    DRIP_MSG_COORDINATOR = 8,
+    DRIP_MSG_ELECTION = 9,
+    DRIP_MSG_ERROR = 10,
 };
+
+enum election_state {
+    ELECTION_STATE_NONE,
+    ELECTION_STATE_RUNNING,
+    ELECTION_STATE_WAITING_COORDINATOR,
+};
+
 struct uuid {
     union {
         uint8_t bytes[16];
         __uint128_t integer;
     };
 };
+
+struct uuidv7 {
+    union {
+        struct {
+            uint64_t timestamp:48;
+            uint64_t version:4;
+            uint64_t rand_a:12;
+            uint64_t var_a:2;
+            uint64_t rand_b:12;
+        };
+        struct uuid as_uuid;
+        uint8_t bytes[16];
+        __uint128_t integer;
+    };
+};
+
 struct string36 {
     char data[37];
 };
@@ -63,6 +92,13 @@ struct dripbox_list_header {
     uint64_t file_list_length;
 } __attribute__((packed));
 struct dripbox_add_replica_header {
+    struct uuidv7 server_uuid;
+} __attribute__((packed));
+struct dripbox_coordinator_header {
+    struct uuidv7 coordinator_uuid;
+    uint32_t coordinator_inaddr;
+} __attribute__((packed));
+struct dripbox_election_header {
     struct uuid server_uuid;
 } __attribute__((packed));
 
@@ -83,17 +119,18 @@ static int dripbox_dirent_is_file(const struct dirent *name) {
     return 1;
 }
 
-static const char *msg_type_cstr(const enum msg_type msg_type) {
+static const char *msg_type_cstr(const enum drip_message_type msg_type) {
     switch (msg_type) {
-    case MSG_LIST: return "List";
-    case MSG_UPLOAD: return "Upload";
-    case MSG_DOWNLOAD: return "Download";
-    case MSG_LOGIN: return "Login";
-    case MSG_NOOP: return "Noop";
-    case MSG_BYTES: return "Bytes";
-    case MSG_DELETE: return "Delete";
-    case MSG_ADD_REPLICA: return "Add Replica";
-    case MSG_ERROR: return "Error";
+    case DRIP_MSG_LIST: return "List";
+    case DRIP_MSG_UPLOAD: return "Upload";
+    case DRIP_MSG_DOWNLOAD: return "Download";
+    case DRIP_MSG_LOGIN: return "Login";
+    case DRIP_MSG_NOOP: return "Noop";
+    case DRIP_MSG_BYTES: return "Bytes";
+    case DRIP_MSG_DELETE: return "Delete";
+    case DRIP_MSG_ADD_REPLICA: return "Add Replica";
+    case DRIP_MSG_ERROR: return "Error";
+    case DRIP_MSG_COORDINATOR: return "Coordinator";
     default: return "Invalid Message";
     }
 }
@@ -147,14 +184,14 @@ static uint8_t dripbox_file_checksum(const char *path) {
 #define dripbox_expect_msg(s__, actual__, expected__) \
     dripbox_expect_msg_((s__), (actual__), (expected__), __FILE__, __LINE__)
 
-static bool dripbox_expect_msg_(struct socket *s, const enum msg_type actual, const enum msg_type expected,
+static bool dripbox_expect_msg_(struct socket *s, const enum drip_message_type actual, const enum drip_message_type expected,
     char *file, const int line) {
     if (s->error.code != 0) {
         diagf(LOG_ERROR, "%s\n", strerror(s->error.code));
         diagf(LOG_ERROR, "Caller Location [%s:%d]\n", file, line);
         return false;
     }
-    if (actual == MSG_ERROR) {
+    if (actual == DRIP_MSG_ERROR) {
         const struct string_view sv_error = dripbox_read_error(s);
         diagf(LOG_ERROR, "Dripbox error: "sv_fmt"\n", (int)sv_deconstruct(sv_error));
         diagf(LOG_ERROR, "Caller Location [%s:%d]\n", file, line);
@@ -200,7 +237,7 @@ static void dripbox_send_error(struct socket *s, const int errnum, const struct 
 
     socket_write_struct(s, ((struct dripbox_msg_header) {
         .version = 1,
-        .type = MSG_ERROR,
+        .type = DRIP_MSG_ERROR,
     }), 0);
 
     socket_write_struct(s, ((struct dripbox_error_header) {
@@ -374,7 +411,8 @@ static enum transaction_result dripbox_transaction_copy_file(const struct z_stri
     return dripbox_file_transaction_commit(dst_path);
 }
 
-static bool uuidv7_try_new(struct uuid *uuid) {
+// https://antonz.org/uuidv7/
+static bool uuidv7_try_new(struct uuidv7 *uuid) {
     const int err = getentropy(uuid->bytes, 16);
     if (err != EXIT_SUCCESS) {
         return false;
@@ -400,8 +438,8 @@ static bool uuidv7_try_new(struct uuid *uuid) {
     return true;
 }
 
-static struct uuid uuidv7_new() {
-    struct uuid uuid;
+static struct uuidv7 uuidv7_new() {
+    struct uuidv7 uuid;
     const bool success = uuidv7_try_new(&uuid);
     assert(success && "uuidv7_try_new");
     return uuid;

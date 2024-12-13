@@ -34,10 +34,21 @@ ALLOCATOR_API void allocator_dealloc(struct allocator *allocator, void *ptr);
 
 ALLOCATOR_API void *allocator_copy(struct allocator *allocator, const void *ptr, size_t size);
 
-#define new2(allocator__, type__, CLITERAL) \
-    ((type__*)memcpy(allocator_alloc((allocator__), sizeof (type__)), &CLITERAL, sizeof (type__)))
+#define new2(allocator__, type__, cliteral__)\
+    ({\
+        var _allocator = (allocator__);\
+        size_t _size = sizeof(type__);\
+        var _cliteral = (cliteral__);\
+        void *_mem = allocator_alloc(_allocator, _size);\
+        (type__*)memcpy(_mem, &_cliteral, _size);\
+    })
 
-#define new1(allocator__, type__) ((type__*)allocator_alloc((allocator__), sizeof (type__)))
+#define new1(allocator__, type__)\
+    ({\
+        var _allocator = (allocator__);\
+        size_t _size = sizeof(type__);\
+        (type__*)allocator_alloc(_allocator, _size);\
+    })
 
 #define new(...) MACRO_SELECT3(__VA_ARGS__, new2, new1, new1)(__VA_ARGS__)
 
@@ -113,6 +124,14 @@ ALLOCATOR_API void *allocator_arena_detach_bytes(struct allocator_arena *arena, 
     })
 
 #define allocator_malloc_arena(size__) allocator_arena_init(malloc(size__), (size__))
+
+#define allocator_arena_new(allocator__, size__) \
+    ({\
+        var _allocator = (allocator__);\
+        size_t _size = (size__);\
+        void *_mem = allocator_alloc(_allocator, _size);\
+        allocator_arena_init(_mem, _size);\
+    })
 
 // Allocator Implementation
 

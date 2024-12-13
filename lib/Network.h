@@ -133,7 +133,13 @@ NETWORK_API struct socket socket_new(void);
 
 NETWORK_API bool socket_open(struct socket *s, int domain, int type, int protocol);
 
-NETWORK_API bool socket_pending(const struct socket *socket, int timeout);
+NETWORK_API bool socket_pending_read(const struct socket *socket, int timeout);
+
+NETWORK_API bool socket_pending_write(const struct socket *socket, int timeout);
+
+NETWORK_API bool socket_pending_event(const struct socket *socket, int events, int timeout);
+
+NETWORK_API int socket_poll(const struct socket *socket, int events, int timeout);
 
 NETWORK_API ssize_t socket_read_exactly(struct socket *s, size_t length, uint8_t buffer[static length],
                                         int flags);
@@ -305,15 +311,17 @@ char *ipv4_cstr(const struct socket_address *addr, struct allocator *a) {
 
 bool (tcp_listener_bind)(struct tcp_listener *listener, const int domain, struct socket_address *addr) {
     if (listener->error.code != 0) { return false; }
+    listener->addr = addr;
+
     listener->sock_fd = socket(domain, SOCK_STREAM, IPPROTO_TCP);
     if (listener->sock_fd < 0) {
         SETSOCK_ERROR(listener->error);
         return false;
     }
 
-    listener->addr = addr;
     if (bind(listener->sock_fd, addr->sa, addr->addr_len) < 0) {
         listener->error.code = errno;
+        return false;
     }
     return true;
 }
@@ -441,7 +449,7 @@ struct socket (socket_accept)(struct socket *socket, struct socket_address *remo
     return client;
 }
 
-bool socket_pending(const struct socket *socket, const int timeout) {
+bool socket_pending_read(const struct socket *socket, const int timeout) {
     if (socket->error.code != 0) { return false; }
 
     struct pollfd pfd = {
@@ -453,6 +461,44 @@ bool socket_pending(const struct socket *socket, const int timeout) {
         return pfd.revents & POLLIN;
     }
     return false;
+}
+
+bool socket_pending_write(const struct socket *socket, const int timeout) {
+    if (socket->error.code != 0) { return false; }
+
+    struct pollfd pfd = {
+        .fd = socket->sock_fd,
+        .events = POLLOUT,
+    };
+    const int event_count = poll(&pfd, 1, timeout);
+    if (event_count > 0) {
+        return pfd.revents & POLLOUT;
+    }
+    return false;
+}
+
+bool socket_pending_event(const struct socket *socket, const int events, const int timeout) {
+    if (socket->error.code != 0) { return false; }
+
+    struct pollfd pfd = {
+        .fd = socket->sock_fd,
+        .events = events,
+    };
+    const int event_count = poll(&pfd, 1, timeout);
+    if (event_count > 0) {
+        return pfd.revents & events;
+    }
+    return false;
+}
+
+int socket_poll(const struct socket *socket, const int events, const int timeout) {
+    if (socket->error.code != 0) { return -1; }
+    struct pollfd pfd = {
+        .fd = socket->sock_fd,
+        .events = events,
+    };
+    poll(&pfd, 1, timeout);
+    return pfd.revents;
 }
 
 ssize_t (socket_read_exactly)(struct socket *s, const size_t length, uint8_t buffer[static length],
@@ -632,6 +678,11 @@ static void socket_adress_set_port(const struct socket_address *addr, const uint
 static void socket_adress_set_in_addr(const struct socket_address *addr, const uint32_t ip) {
     assert(addr->sa->sa_family == AF_INET);
     ((struct sockaddr_in *) addr->sa)->sin_addr.s_addr = htonl(ip);
+}
+
+static in_addr_t socket_address_get_in_addr(const struct socket_address *addr) {
+    assert(addr->sa->sa_family == AF_INET);
+    return ((struct sockaddr_in *) addr->sa)->sin_addr.s_addr;
 }
 
 static void *_socket_read_struct_impl(struct socket *socket, const size_t length, uint8_t buffer[length],
