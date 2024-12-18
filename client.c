@@ -91,7 +91,7 @@ static void dripbox_client_command_dispatch(struct socket *s, struct string_view
 
 static void dripbox_client_handle_server_message(struct socket *s);
 
-static int dripbox_client_list_server(struct socket *s, bool update_client_list);
+static int dripbox_client_list_server(struct socket *client, bool update_client_list);
 
 static void* client_discover_servers_worker(void *arg);
 
@@ -104,7 +104,7 @@ void dripbox_cleint_inotify_dispatch(struct socket *s, struct inotify_event_t in
 void *inotify_watcher_worker(const void *args);
 
 int client_main() {
-    pthread_t inotify_watcher_worker_id, network_worker_id, client_discover_servers_worker_id;
+    pthread_t inotify_watcher_worker_id, network_worker_id;
     struct stat dir_stat = {};
     if (stat(g_sync_dir_path.data, &dir_stat) < 0) {
         mkdir(g_sync_dir_path.data, S_IRWXU | S_IRWXG | S_IRWXO);
@@ -136,11 +136,10 @@ int client_main() {
 
     pthread_create(&inotify_watcher_worker_id, NULL, (void *) inotify_watcher_worker, &dripbox_client.leader_socket);
     pthread_create(&network_worker_id, NULL, (void *) dripbox_client_network_worker, &dripbox_client.leader_socket);
-    pthread_create(&client_discover_servers_worker_id, NULL, (void *) client_discover_servers_worker, &dripbox_client);
 
     // ReSharper disable once CppDFALoopConditionNotUpdated
     while (!dripbox_client_quit) {
-        dripbox_ensure_sock();
+        //dripbox_ensure_sock();
 
         if (!fd_pending_read(STDIN_FILENO)) continue;
 
@@ -217,7 +216,7 @@ void *dripbox_client_network_worker(const void *args) {
         struct socket *s = &dripbox_client.leader_socket;
         if (s->error.code == EAGAIN) s->error.code = 0;
         if (s->error.code != 0 || s->sock_fd == -1) continue;
-        dripbox_ensure_sock();
+        //dripbox_ensure_sock();
         if (socket_pending_read(s, 0)) {
             using_monitor(&g_client_monitor) {
                 dripbox_client_handle_server_message(s);
@@ -553,41 +552,23 @@ void dripbox_client_handle_server_message(struct socket *s) {
     if (s->error.code != 0) { diagf(LOG_ERROR, "%s\n", strerror(s->error.code)); }
 }
 
-struct file_name_checksum_tuple {
-    struct string_view name;
-    uint8_t checksum;
-};
-
-bool file_name_checksum_tuple_name_equals(const void *a, const void *b) {
-    struct file_name_checksum_tuple *a_ = (struct file_name_checksum_tuple *) a;
-    struct file_name_checksum_tuple *b_ = (struct file_name_checksum_tuple *) b;
-    return sv_equals(a_->name, b_->name);
-}
-
-bool file_name_checksum_tuple_equals(const void *a, const void *b) {
-    struct file_name_checksum_tuple *a_ = (struct file_name_checksum_tuple *) a;
-    struct file_name_checksum_tuple *b_ = (struct file_name_checksum_tuple *) b;
-    return sv_equals(a_->name, b_->name) && a_->checksum == b_->checksum;
-}
-
-
-int dripbox_client_list_server(struct socket *s, const bool update_client_list) {
+int dripbox_client_list_server(struct socket *client, const bool update_client_list) {
     diag(LOG_INFO, "Listing server files");
-    if (s->error.code != 0) { return -1; }
+    if (client->error.code != 0) { return -1; }
 
-    socket_write_struct(s, ((struct dripbox_msg_header) {
+    socket_write_struct(client, ((struct dripbox_msg_header) {
         .version = 1,
         .type = DRIP_MSG_LIST,
     }), 0);
 
-    const var msg_header = socket_read_struct(s, struct dripbox_msg_header, 0);
-    if (!dripbox_expect_version(s, msg_header.version, 1)) return -1;
-    if (!dripbox_expect_msg(s, msg_header.type, DRIP_MSG_LIST)) return -1;
+    const var msg_header = socket_read_struct(client, struct dripbox_msg_header, 0);
+    if (!dripbox_expect_version(client, msg_header.version, 1)) return -1;
+    if (!dripbox_expect_msg(client, msg_header.type, DRIP_MSG_LIST)) return -1;
 
-    const var upload_header = socket_read_struct(s, struct dripbox_list_header, 0);
+    const var upload_header = socket_read_struct(client, struct dripbox_list_header, 0);
     const int server_stats_count = upload_header.file_list_length;
     struct dripbox_file_stat server_stats[server_stats_count];
-    socket_read_exactly(s, size_and_address(server_stats), 0);
+    socket_read_exactly(client, size_and_address(server_stats), 0);
 
     if(server_stats_count > 0) {
         printf("\n\n==== Client\'s server files ====\n\n");
@@ -615,19 +596,19 @@ int dripbox_client_list_server(struct socket *s, const bool update_client_list) 
     if (update_client_list && server_stats_count > 0) {
         struct dirent **client_entries;
         const int client_entries_count = scandir(g_sync_dir_path.data, &client_entries, dripbox_dirent_is_file, alphasort);
-        var client_set = array_stack(struct file_name_checksum_tuple, client_entries_count);
+        var client_set = array_stack(struct file_name_checksum, client_entries_count);
         for (int i = 0; i < client_entries_count; i++) {
             struct dirent *entry = client_entries[i];
             const struct z_string path = path_combine(g_sync_dir_path, entry->d_name);
-            client_set[i] = (struct file_name_checksum_tuple) {
+            client_set[i] = (struct file_name_checksum) {
                 .name = sv_cstr(entry->d_name),
                 .checksum = dripbox_file_checksum(path.data),
             };
         }
-        var server_set = array_stack(struct file_name_checksum_tuple, server_stats_count);
+        var server_set = array_stack(struct file_name_checksum, server_stats_count);
         for (int i = 0; i < server_stats_count; i++) {
             struct dripbox_file_stat *stat = &server_stats[i];
-            server_set[i] = (struct file_name_checksum_tuple) {
+            server_set[i] = (struct file_name_checksum) {
                 .name = sv_cstr(stat->name),
                 .checksum = stat->checksum,
             };
@@ -635,14 +616,14 @@ int dripbox_client_list_server(struct socket *s, const bool update_client_list) 
         using_allocator_temp_arena {
             struct allocator *tempa = &allocator_temp_arena()->allocator;
             // Download = { file | file ∈ Server \ Client }
-            var to_download = array_set_difference(server_set, client_set, file_name_checksum_tuple_equals, tempa);
+            var to_download = array_set_difference(server_set, client_set, file_name_checksum_equals, tempa);
             diagf(LOG_INFO, "Downloading %ld files\n", array_length(to_download));
             // Delete = { file | file ∈ (Client ↦ file_name) \ (Server ↦ file_name) }
-            var to_delete = array_set_difference(client_set, server_set, file_name_checksum_tuple_name_equals, tempa);
+            var to_delete = array_set_difference(client_set, server_set, file_name_checksum_name_equals, tempa);
             diagf(LOG_INFO, "Deleting %ld files\n", array_length(to_delete));
 
             for (int i = 0; i < array_length(to_delete); i++) {
-                struct file_name_checksum_tuple item = to_delete[i];
+                struct file_name_checksum item = to_delete[i];
                 const struct z_string path = path_combine(g_sync_dir_path, item.name);
                 if (unlink(path.data) < 0) {
                     diagf(LOG_ERROR, "%s %s\n", strerror(errno), item.name.data);
@@ -651,9 +632,9 @@ int dripbox_client_list_server(struct socket *s, const bool update_client_list) 
                 diagf(LOG_INFO, "Deleted "sv_fmt"\n", (int)sv_deconstruct(item.name));
             }
             for (int i = 0; i < array_length(to_download); i++) {
-                struct file_name_checksum_tuple item = to_download[i];
+                struct file_name_checksum item = to_download[i];
                 const struct z_string path = path_combine(g_sync_dir_path, item.name);
-                if(dripbox_client_download(s, path.data) < 0) {
+                if(dripbox_client_download(client, path.data) < 0) {
                     diagf(LOG_ERROR, "Failed to Download %s\n", path.data);
                 }
             }
@@ -661,52 +642,6 @@ int dripbox_client_list_server(struct socket *s, const bool update_client_list) 
     }
     return 0;
 }
-
-void* client_discover_servers_worker(void *arg) {
-    struct dripbox_client *dripbox_client = arg;
-    struct socket multicast_sock = socket_new();
-    struct socket_address remote = ipv4_endpoint(0, 0);
-    const struct socket_address multicast_addr = ipv4_endpoint(DRIPBOX_REPLICA_MULTICAST_GROUP, DRIPBOX_REPLICA_PORT);
-
-    socket_open(&multicast_sock, AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    socket_reuse_address(&multicast_sock, true);
-    socket_bind(&multicast_sock, &ipv4_endpoint(INADDR_ANY, DRIPBOX_REPLICA_PORT));
-    socket_join_multicast_group(&multicast_sock, (struct ip_mreq) {
-        .imr_multiaddr = htonl(DRIPBOX_REPLICA_MULTICAST_GROUP),
-        .imr_interface = INADDR_ANY,
-    });
-    socket_option(&multicast_sock, IPPROTO_IP, IP_MULTICAST_LOOP, false);
-
-    socket_write_struct_to(&multicast_sock, dripbox_client->discovery_probe, &multicast_addr, 0);
-    while (!dripbox_client_quit) {
-        typedef typeof(dripbox_server.discovery_probe) discovery_probe_t;
-        const var discovery_response = socket_read_struct_from(&multicast_sock, discovery_probe_t, &remote, 0);
-        if (socket_address_get_in_addr(&remote) == dripbox_client->leader_in_addr) continue;
-
-        if(!dripbox_expect_version(&multicast_sock, discovery_response.item1.version, 1)) continue;
-        if(!dripbox_expect_msg(&multicast_sock, discovery_response.item1.type, DRIP_MSG_ADD_REPLICA)) continue;
-
-        using_monitor(&dripbox_client->m_replicas) {
-            struct socket replica_socket = socket_new();
-            socket_open(&replica_socket, AF_INET, SOCK_STREAM, IPPROTO_TCP);
-            socket_reuse_address(&replica_socket, true);
-            socket_adress_set_port(&remote, port);
-            socket_connect(&replica_socket, &remote);
-            dripbox_client_login(&replica_socket, dripbox_username);
-            if (replica_socket.error.code != 0) {
-                ediag("client_discover_servers_worker");
-                continue;
-            }
-            diagf(LOG_INFO, "Connected to replica\n");
-            dynamic_array_push(&dripbox_client->replica_sockets, ((socket_ip_tuple_t) {
-                .item1 = replica_socket,
-                .item2 = ((struct sockaddr_in*)remote.sa)->sin_addr.s_addr,
-            }));
-        }
-    }
-    return NULL;
-}
-
 
 void dripbox_ensure_sock(void) {
     struct socket *s = &dripbox_client.leader_socket;

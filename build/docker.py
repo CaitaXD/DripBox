@@ -20,6 +20,8 @@ build_parser = sub_parsers.add_parser("build")
 build_sub_parsers = build_parser.add_subparsers(dest="mode")
 build_server_mode = build_sub_parsers.add_parser("server")
 build_client_mode = build_sub_parsers.add_parser("client")
+build_dns_mode = build_sub_parsers.add_parser("dns")
+
 build_parser.add_argument("ip", help="IP to use", type=str, default="0.0.0.0")
 build_parser.add_argument("port", help="Port to use", type=int, default=25565)
 build_parser.add_argument("container_name", help="Container name", type=str, default="dripbox")
@@ -46,102 +48,28 @@ clear_client_mode.add_argument("container_name", help="Container name", type=str
 args = parser.parse_args()
 print(args)
 
-if args.command == "build-run" and args.mode == "server":
-    container_name = args.container_name.lower().replace(" ", "-")
-    if args.clean:
-        os.system(f"cd .. && "
-                  f"docker rm -f {container_name}-server && "
-                  f"docker rmi -f {container_name}-server"
-                  )
+name = args.username.lower().replace(" ", "-") if args.mode == "client" else args.mode
+container_name = f"{args.container_name.lower().replace(" ", "-")}-{name}"
+kind_arg = f'client={name}' if args.mode == "client" else name
+
+if args.clean and (args.command == "build-run" or args.command == "build"):
+    os.system(f"cd .. && docker rm -f {container_name} && docker rmi -f {container_name}")
+
+elif args.clean and args.command == "run":
+    os.system(f"cd .. && docker rm -f {container_name}")
+
+if args.command == "build-run" or args.command == "build":
     os.system(f"cd .. && "
               f"docker build "
+              f"-t {container_name} "
               f"-f build/Dockerfile "
-              f"-t {container_name}-{args.mode} "
-              f"."
-              )
-    os.system(f"cd .. && "
-              f"docker run --name {container_name}-{args.mode} --network bridge -t {container_name}-{args.mode}"
-              )
-elif args.command == "build-run" and args.mode == "client":
-    username = args.username.lower().replace(" ", "-")
-    container_name = args.container_name.lower().replace(" ", "-")
-    if args.clean:
-        os.system(f"cd .. && "
-                  f"docker rm -f {container_name}-{username} && "
-                  f"docker rmi -f {container_name}-{username}"
-                  )
-    os.system(f"cd .. && "
-              f"docker build "
-              f"-t {container_name}-{username} "
-              f"-f build/Dockerfile "
-              f"--build-arg KIND='client={username}' "
+              f"--build-arg KIND={kind_arg} "
               f"--build-arg IP={args.ip} "
               f"--build-arg PORT={args.port} "
-              f"."
-              )
-    os.system(f"cd .. && "
-              f"docker run "
-              f" -i --name {container_name}-{username} "
-              f"--network bridge "
-              f"-t {container_name}-{username}"
-              )
+              f".")
 
-elif args.command == "clear" and args.mode == "server":
-    container_name = args.container_name.lower().replace(" ", "-")
-    os.system(f"cd .. && "
-              f"docker rm -f {container_name}-server && "
-              f"docker rmi -f {container_name}-server"
-              )
+if args.command == "build-run" or args.command == "run":
+    os.system(f"cd .. && docker run -i --name {container_name} --network bridge -t {container_name}")
 
-elif args.command == "clear" and args.mode == "client":
-    username = args.username.lower().replace(" ", "-")
-    container_name = args.container_name.lower().replace(" ", "-")
-    os.system(f"cd .. && "
-              f"docker rm -f {container_name}-{username} && "
-              f"docker rmi -f {container_name}-{username}"
-              )
-
-elif args.command == "build" and args.mode == "server":
-    container_name = args.container_name.lower().replace(" ", "-")
-    os.system(f"cd .. && "
-              f"docker build "
-              f"-f build/Dockerfile "
-              f"-t {container_name}-{args.mode} "
-              f"."
-              )
-
-elif args.command == "build" and args.mode == "client":
-    username = args.username.lower().replace(" ", "-")
-    container_name = args.container_name.lower().replace(" ", "-")
-    os.system(f"cd .. && "
-              f"docker build "
-              f"-t {container_name}-{username} "
-              f"-f build/Dockerfile "
-              f"--build-arg KIND='client={username}' "
-              f"--build-arg IP={args.ip} "
-              f"--build-arg PORT={args.port} "
-              f"."
-              )
-
-elif args.command == "run" and args.mode == "server":
-    container_name = args.container_name.lower().replace(" ", "-")
-    if args.clean:
-        os.system(f"cd .. && "
-                  f"docker rm -f {container_name}-server"
-                  )
-    os.system(f"docker run --name {container_name}-{args.mode} --network bridge -t {container_name}-{args.mode}")
-
-elif args.command == "run" and args.mode == "client":
-    username = args.username.lower().replace(" ", "-")
-    container_name = args.container_name.lower().replace(" ", "-")
-    if args.clean:
-        os.system(f"cd .. && "
-                  f"docker rm -f {container_name}-{username}"
-                  )
-    os.system(f"docker run "
-              f"--name {container_name}-{username} "
-              f"--network bridge "
-              f"-t {container_name}-{username}"
-              )
-else:
-    raise "Not implemented"
+if args.command == "clear":
+    os.system(f"cd .. && docker rm -f {container_name} && docker rmi -f {container_name} ")

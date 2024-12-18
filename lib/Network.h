@@ -219,8 +219,9 @@ NETWORK_API void socket_adress_set_in_addr(const struct socket_address *addr, ui
 #define socket_read_array(socket__, type__, length__, flags__) \
 ({\
     struct { size_t length; type__ data[(length__)]; } _array;\
-    _array.length = sizeof _array.data;\
-    socket_read_exactly(socket__, _array.length, _array.data, flags__);\
+    _array.length = (length__);\
+    size_t _sz = sizeof _array.data;\
+    socket_read_exactly(socket__, _sz, (uint8_t*)_array.data, flags__);\
     _array;\
 }).data
 
@@ -507,7 +508,7 @@ ssize_t (socket_read_exactly)(struct socket *s, const size_t length, uint8_t buf
     while (left_to_read > 0) {
         const ssize_t recvd = recv(s->sock_fd, buffer, left_to_read, flags);
         if (recvd == 0) {
-            (socket_close)(s);
+            socket_close(s);
             return length - left_to_read;
         }
         if (recvd < 0) {
@@ -517,6 +518,7 @@ ssize_t (socket_read_exactly)(struct socket *s, const size_t length, uint8_t buf
         buffer += recvd;
         left_to_read -= recvd;
     }
+    assert(left_to_read == 0 && "Dawg this aint your bytes to read");
     return length;
 }
 
@@ -578,12 +580,11 @@ ssize_t (socket_redirect_to_file)(struct socket *s, const char *path, const size
     size_t left_to_read = length;
     uint8_t buffer[1024] = {};
     scope(FILE *file = fopen(path, "wb"), file && fclose(file)) {
-        if (file == NULL) {
-            continue;
-        }
+        if (file == NULL) return -1;
+
         while (left_to_read > 0) {
             const size_t len = min(length, sizeof buffer);
-            const ssize_t got = (socket_read)(s, len, buffer, 0);
+            const ssize_t got = socket_read(s, len, buffer, 0);
 
             if (got == 0) { break; }
             if (got < 0) {

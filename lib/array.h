@@ -13,7 +13,10 @@ struct array {
 
 #define array(T) T*
 #define array_header(array__) (container_of(array__, struct array, data))
+// Length of the array (number of elements)
 #define array_length(array__) (array_header(array__)->length)
+// Size of the array in bytes
+#define array_size(array__) (array_length((array__)) * sizeof((array__)[0]))
 #define array_new(type__, length__, allocator__) ((type__*)array_new_(sizeof(type__), length__, allocator__)->data)
 #define array_clear(array__) memset(array__, 0, array_length(array__) * sizeof(array__[0]))
 #define array_contains(array__, element__, equals__) array_contains_impl(array__, sizeof(*array__), &(element__), (equals__))

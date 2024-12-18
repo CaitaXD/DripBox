@@ -18,7 +18,7 @@ static bool dripbox_server_quit = false;
 
 #define DRIPBOX_REPLICAS 2
 
-struct user_t {
+struct user {
     struct string_view username;
     struct socket socket;
 };
@@ -28,8 +28,8 @@ struct replica {
     struct socket socket;
 };
 
-typedef hash_table(char *, struct user_t) UsersHashTable;
-typedef key_value_pair(char *, struct user_t) UserKVP;
+typedef hash_table(char *, struct user) UsersHashTable;
+typedef key_value_pair(char *, struct user) UserKVP;
 typedef hash_table(char*, struct replica) ReplicaHashTable;
 typedef key_value_pair(char*, struct replica) ReplicaKVP;
 
@@ -75,15 +75,15 @@ static void* dripbox_server_election_coroutine(struct coroutine *co, struct drip
 
 static void dripbox_server_handle_client_login(struct dripbox_server *dripbox_server, struct socket *client);
 
-static void dripbox_server_handle_client_upload(struct dripbox_server *dripbox_server, struct user_t *user);
+static void dripbox_server_handle_client_upload(struct dripbox_server *dripbox_server, struct user *user);
 
-static void dripbox_server_handle_client_download(struct user_t *user);
+static void dripbox_server_handle_client_download(struct user *user);
 
-static void dripbox_server_handle_client_delete(struct dripbox_server *dripbox_server, struct user_t *user);
+static void dripbox_server_handle_client_delete(struct dripbox_server *dripbox_server, struct user *user);
 
-static void dripbox_server_handle_client_list(struct user_t *user);
+static void dripbox_server_handle_client_list(struct user *user);
 
-static void dripbox_server_handle_client_massage(struct dripbox_server *dripbox_server, struct user_t *user);
+static void dripbox_server_handle_client_massage(struct dripbox_server *dripbox_server, struct user *user);
 
 static void *dripbox_server_incoming_connections_worker(const void *arg);
 
@@ -94,6 +94,14 @@ static void dripbox_server_handle_add_replica(struct dripbox_server *dripbox_ser
 static void dripbox_server_handle_replica_massage(struct dripbox_server *dripbox_server, struct replica *replica);
 
 static void dripbox_handle_replica_upload(struct dripbox_server *dripbox_server, struct socket *sock);
+
+static void dripbox_server_upload_user_to_replica(const struct dripbox_server *dripbox_server, struct replica *replica);
+
+static void dripbox_server_handle_list_user(const struct dripbox_server *dripbox_server, struct socket *sock);
+
+static int dripbox_download_replica_file(const struct dripbox_server *dripbox_server, struct socket *sock, struct z_string filename);
+
+static void dripbox_server_handle_replica_download(struct dripbox_server *dripbox_server, struct socket *sock);
 
 static ssize_t dripbox_upload_client_file(
     struct socket *sock,
@@ -108,7 +116,7 @@ static ssize_t dripbox_upload_replica_file(
     struct z_string path
 );
 
-static void dripbox_delete_client_file(struct user_t *user, struct string_view file_name);
+static void dripbox_delete_client_file(struct user *user, struct string_view file_name);
 
 static void* server_discover_replicas(struct coroutine *co) {
     struct ifaddrs server_addr;
@@ -149,8 +157,8 @@ static void* server_discover_replicas(struct coroutine *co) {
                 co_yield(co);
                 continue;
             }
-
-            var discovery_response = socket_read_struct_from(&multicast_sock, typeof(dripbox_server.discovery_probe), &remote, 0);
+            typedef typeof(dripbox_server.discovery_probe) discovery_probe_t;
+            var discovery_response = socket_read_struct_from(&multicast_sock, discovery_probe_t, &remote, 0);
             if(!dripbox_expect_version(&multicast_sock, discovery_response.item1.version, 1)) continue;
             if (discovery_response.item1.type == DRIP_MSG_LOGIN) {
                 socket_write_struct_to(&multicast_sock, dripbox_server.discovery_probe, &multicast_addr, 0);
@@ -264,7 +272,7 @@ static int server_main(const struct ifaddrs *addrs) {
     }
 
     pthread_t incoming_connections_worker_id, nextwork_worker_id;
-    var users_hash_table = hash_table_new(char*, struct user_t,
+    var users_hash_table = hash_table_new(char*, struct user,
                                           string_hash, string_comparer_equals,
                                           &mallocator);
     struct dripbox_server_context ctx = {
@@ -277,7 +285,7 @@ static int server_main(const struct ifaddrs *addrs) {
     dripbox_server = (struct dripbox_server) {
         .interface_address = server_addr,
         .listener = listener,
-        .ht_users = (void*)hash_table_new(char*, struct user_t, string_hash, string_comparer_equals, &mallocator),
+        .ht_users = (void*)hash_table_new(char*, struct user, string_hash, string_comparer_equals, &mallocator),
         .ht_replicas = (void*)hash_table_new(char*, struct replica, string_hash, string_comparer_equals, &mallocator),
         .m_replicas = MONITOR_INITIALIZER,
         .m_users = MONITOR_INITIALIZER,
@@ -324,7 +332,7 @@ static void dripbox_server_handle_client_login(struct dripbox_server *dripbox_se
     );
 
     struct allocator *a = hash_set_allocator(dripbox_server->ht_users);
-    const struct user_t _user = {
+    const struct user _user = {
         .username = (struct string_view){
             .data = cstr_sv(username, a),
             .length = username.length,
@@ -382,7 +390,7 @@ ssize_t dripbox_upload_client_file(struct socket *sock,
     return st.st_size;
 }
 
-void dripbox_delete_client_file(struct user_t *user, const struct string_view file_name) {
+void dripbox_delete_client_file(struct user *user, const struct string_view file_name) {
     struct socket *client = &user->socket;
 
     socket_write_struct(client, ((struct dripbox_msg_header) {
@@ -401,7 +409,7 @@ void dripbox_delete_client_file(struct user_t *user, const struct string_view fi
     }
 }
 
-static void dripbox_server_handle_client_upload(struct dripbox_server *dripbox_server, struct user_t *user) {
+static void dripbox_server_handle_client_upload(struct dripbox_server *dripbox_server, struct user *user) {
     struct socket *client = &user->socket;
     const var upload_header = socket_read_struct(client, struct dripbox_upload_header, 0);
     const struct string_view file_name = sv_new(
@@ -466,7 +474,7 @@ upload_file:
     }
 }
 
-void dripbox_server_handle_client_download(struct user_t *user) {
+void dripbox_server_handle_client_download(struct user *user) {
     struct socket *client = &user->socket;
 
     const var download_header = socket_read_struct(client, struct dripbox_download_header, 0);
@@ -522,7 +530,7 @@ void dripbox_server_handle_client_download(struct user_t *user) {
     }
 }
 
-void dripbox_server_handle_client_delete(struct dripbox_server *dripbox_server, struct user_t *user) {
+void dripbox_server_handle_client_delete(struct dripbox_server *dripbox_server, struct user *user) {
     struct socket *client = &user->socket;
     const var delete_header = socket_read_struct(client, struct dripbox_delete_header, 0);
     const struct string_view file_name = sv_new(
@@ -567,7 +575,7 @@ void dripbox_server_handle_client_delete(struct dripbox_server *dripbox_server, 
     }
 }
 
-static void dripbox_server_handle_client_massage(struct dripbox_server *dripbox_server, struct user_t *user) {
+static void dripbox_server_handle_client_massage(struct dripbox_server *dripbox_server, struct user *user) {
     if (dripbox_server->uuid.integer != dripbox_server->coordinator_uuid.integer) {
         diagf(LOG_INFO, "TODO: Redirect client to coordinator\n");
     }
@@ -599,13 +607,12 @@ static void dripbox_server_handle_client_massage(struct dripbox_server *dripbox_
         dripbox_server_handle_client_list(user);
         break;
     }
+    case DRIP_MSG_LIST_USER:
+    case DRIP_MSG_ELECTION:
     case DRIP_MSG_ADD_REPLICA: {
         ediag("Client process attempted to make a server operation");
         break;
     }
-    case DRIP_MSG_ELECTION: {
-        dripbox_server_start_election(dripbox_server);
-    } break;
     default:
         diagf(LOG_INFO, "Type: 0X%X\n", msg_header.type);
         break;
@@ -664,12 +671,13 @@ static void dripbox_server_handle_replica_massage(struct dripbox_server *dripbox
     const char *msg_type = msg_type_cstr(msg_header.type);
     diagf(LOG_INFO, "Recieved Replica Message %s\n", msg_type);
     switch (msg_header.type) {
-    case DRIP_MSG_NOOP: break;
-    case DRIP_MSG_DOWNLOAD:
-    case DRIP_MSG_DELETE:
-    case DRIP_MSG_LIST:
-    case DRIP_MSG_LOGIN: {
-        ediag("Server process attempted to make a client operation");
+    case DRIP_MSG_NOOP: {
+    } break;
+    case DRIP_MSG_LIST: {
+        dripbox_server_upload_user_to_replica(dripbox_server, replica);
+    } break;
+    case DRIP_MSG_LIST_USER: {
+        dripbox_server_handle_list_user(dripbox_server, &replica->socket);
     } break;
     case DRIP_MSG_UPLOAD: {
         dripbox_handle_replica_upload(dripbox_server, sock);
@@ -696,9 +704,16 @@ static void dripbox_server_handle_replica_massage(struct dripbox_server *dripbox
     case DRIP_MSG_ELECTION: {
         dripbox_server_start_election(dripbox_server);
     } break;
-    default:
+    case DRIP_MSG_DOWNLOAD: {
+        dripbox_server_handle_replica_download(dripbox_server, sock);
+    } break;
+    case DRIP_MSG_DELETE:
+    case DRIP_MSG_LOGIN: {
+        ediag("Server process attempted to make a client operation");
+    } break;
+    default: {
         diagf(LOG_INFO, "Type: 0X%X\n", msg_header.type);
-        break;
+    } break;
     }
     if (sock->error.code != 0) {
         diagf(LOG_ERROR, "%s\n", strerror(sock->error.code));
@@ -714,26 +729,30 @@ void *dripbox_server_incoming_connections_worker(const void *arg) {
     socket_blocking(&listener->as_socket, false);
     // ReSharper disable once CppDFALoopConditionNotUpdated
     while (!dripbox_server_quit) {
-        struct socket client = {};
-        while (tcp_server_incoming_next(listener, &client, &addr)) {
-            const var msg_header = socket_read_struct(&client, struct dripbox_msg_header, 0);
+        struct socket incoming = {};
+        while (tcp_server_incoming_next(listener, &incoming, &addr)) {
+            const var msg_header = socket_read_struct(&incoming, struct dripbox_msg_header, 0);
             if (zero_initialized(msg_header)) continue;
-            if (!dripbox_expect_version(&client, msg_header.version, 1)) continue;
+            if (!dripbox_expect_version(&incoming, msg_header.version, 1)) continue;
+
             const char *msg_type = msg_type_cstr(msg_header.type);
             diagf(LOG_INFO, "Received Message %s\n", msg_type);
             switch (msg_header.type) {
             case DRIP_MSG_LOGIN: {
                 using_monitor(&dripbox_server.m_users)
-                    dripbox_server_handle_client_login(&dripbox_server, &client);
+                    dripbox_server_handle_client_login(&dripbox_server, &incoming);
             } break;
             case DRIP_MSG_ADD_REPLICA: {
-                using_monitor(&dripbox_server.m_replicas)
-                    dripbox_server_handle_add_replica(&dripbox_server, &client);
+                using_monitor(&dripbox_server.m_replicas) {
+                    dripbox_server_handle_add_replica(&dripbox_server, &incoming);
+                    socket_write_struct(&incoming, ((struct dripbox_msg_header) { 1, DRIP_MSG_LIST }), 0);
+                }
             } break;
             case DRIP_MSG_ELECTION: {
                 using_monitor(&dripbox_server.m_replicas)
-                using_monitor(&dripbox_server.m_users)
+                using_monitor(&dripbox_server.m_users) {
                     dripbox_server_start_election(&dripbox_server);
+                }
             } break;
             default:
                 ediag("Unidentified host attempted to send a message before login");
@@ -758,7 +777,7 @@ void *dripbox_server_network_worker(const void *arg) {
                 if (!hash_set_try_entry(dripbox_server.ht_users, i, &entry)) continue;
 
                 const var kvp = (UserKVP*) entry->value;
-                struct user_t *user = &kvp->value;
+                struct user *user = &kvp->value;
                 if (user->username.length <= 0) continue;
 
                 struct socket client = user->socket;
@@ -785,7 +804,7 @@ void *dripbox_server_network_worker(const void *arg) {
     return NULL;
 }
 
-void dripbox_server_handle_client_list(struct user_t *user) {
+void dripbox_server_handle_client_list(struct user *user) {
     struct dirent **server_files;
     const struct z_string client_dir = path_combine(dripbox_server.userdata_dir, user->username);
     const int files_count = scandir(client_dir.data, &server_files, dripbox_dirent_is_file, alphasort);
@@ -974,14 +993,13 @@ static void* dripbox_server_election_coroutine(struct coroutine *co,
 
                     diag(LOG_INFO, "Notify client");
                     const var kvp = (UserKVP*) entry->value;
-                    struct user_t *user = &kvp->value;
+                    struct user *user = &kvp->value;
                     if (user->socket.sock_fd == - 1) continue;
                     packed_tuple(struct dripbox_msg_header, struct dripbox_coordinator_header) coordinator_header = {
                         { .version = 1, .type = DRIP_MSG_COORDINATOR },
                         {
                             .coordinator_uuid = dripbox_server->uuid,
-                            .coordinator_inaddr =
-                                ((struct sockaddr_in*)dripbox_server->interface_address.ifa_addr)->sin_addr.s_addr
+                            .coordinator_inaddr = ((struct sockaddr_in*)dripbox_server->interface_address.ifa_addr)->sin_addr.s_addr
                         },
                     };
                     socket_write_struct(&user->socket, coordinator_header, 0);
@@ -997,6 +1015,154 @@ static void* dripbox_server_election_coroutine(struct coroutine *co,
     co_delete(&mallocator, &timer);
     return NULL;
 }
+
+void dripbox_server_upload_user_to_replica(const struct dripbox_server *dripbox_server, struct replica *replica) {
+    typedef packed_tuple(struct dripbox_msg_header, struct dripbox_list_user_header) list_user_msg_t;
+    struct socket *sock = &replica->socket;
+    for (int i = 0; i < hash_set_capacity(dripbox_server->ht_users); i++) {
+        struct hash_entry_t *entry;
+        if (!hash_set_try_entry(dripbox_server->ht_users, i, &entry)) continue;
+
+        const var kvp = (UserKVP*) entry->value;
+        const struct user *user = &kvp->value;
+        if (user->socket.sock_fd < 0) continue;
+
+        struct z_string user_dir = path_combine(dripbox_server->userdata_dir, user->username);
+        diagf(LOG_INFO, "Replicating user "sv_fmt"\n", (int)sv_deconstruct(user->username));
+        struct dirent **client_entries;
+        const int client_entries_count = scandir(user_dir.data, &client_entries, dripbox_dirent_is_file, alphasort);
+        printf("Client Entries: %d\n", client_entries_count);
+        const var client_set = array_stack(struct string256_checksum, client_entries_count);
+        for (int j = 0; j < client_entries_count; j++) {
+            struct dirent *dirent = client_entries[j];
+            const struct z_string path = path_combine(user_dir, dirent->d_name);
+            client_set[j] = (struct string256_checksum) {
+                .checksum = dripbox_file_checksum(path.data),
+            };
+            strncpy(client_set[j].name.data, dirent->d_name, sizeof dirent->d_name);
+        }
+        socket_write_struct(sock, ((list_user_msg_t) {
+            { .version = 1, .type = DRIP_MSG_LIST_USER },
+            { .username_length = user->username.length, .file_list_length = array_length(client_set) }
+        }), 0);
+        socket_write(sock, sv_deconstruct(user->username), 0);
+        socket_write(sock, array_size(client_set), (uint8_t*)client_set, 0);
+    }
+}
+
+void dripbox_server_handle_list_user(const struct dripbox_server *dripbox_server, struct socket *sock) {
+    const var msg_header = socket_read_struct(sock, struct dripbox_list_user_header, 0);
+    const int32_t username_length = msg_header.username_length;
+    const int32_t file_count = msg_header.file_list_length;
+    struct string_view username = sv_new(username_length, socket_read_array(sock, char, username_length, 0));
+    struct string256_checksum *server_set = socket_read_array(sock, struct string256_checksum, file_count, 0);
+    if (file_count <= 0) return;
+
+    struct dirent **client_entries;
+    struct z_string user_dir = path_combine(dripbox_server->userdata_dir, username);
+    int my_entries_count = scandir(user_dir.data, &client_entries, dripbox_dirent_is_file, alphasort);
+    if (my_entries_count < 0) my_entries_count = 0;
+    var client_set = array_stack(struct string256_checksum, my_entries_count);
+    for (int j = 0; j < my_entries_count; j++) {
+        struct dirent *dirent = client_entries[j];
+        const struct z_string path = path_combine(user_dir, dirent->d_name);
+        client_set[j] = (struct string256_checksum) {
+            .checksum = dripbox_file_checksum(path.data),
+        };
+        strncpy(client_set[j].name.data, dirent->d_name, sizeof dirent->d_name);
+    }
+    using_allocator_temp_arena {
+        struct allocator *tempa = &allocator_temp_arena()->allocator;
+        // Download = { file | file ∈ Server \ Client }
+        var to_download = array_set_difference(server_set, client_set, file_name_checksum_equals, tempa);
+        diagf(LOG_INFO, "Downloading %ld files\n", array_length(to_download));
+        // Delete = { file | file ∈ (Client ↦ file_name) \ (Server ↦ file_name) }
+        var to_delete = array_set_difference(client_set, server_set, file_name_checksum_name_equals, tempa);
+        diagf(LOG_INFO, "Deleting %ld files\n", array_length(to_delete));
+
+        for (int j = 0; j < array_length(to_delete); j++) {
+            struct string256_checksum item = to_delete[j];
+            const struct z_string path = path_combine(user_dir, item.name.data);
+            if (unlink(path.data) < 0) {
+                diagf(LOG_ERROR, "%s %s\n", strerror(errno), item.name.data);
+                continue;
+            }
+            diagf(LOG_INFO, "Deleted %s\n", item.name.data);
+        }
+
+        for (int j = 0; j < array_length(to_download); j++) {
+            struct string256_checksum item = to_download[j];
+            const struct z_string path = path_combine(username, item.name.data);
+            if(dripbox_download_replica_file(dripbox_server, sock, path) < 0) {
+                diagf(LOG_ERROR, "Failed to Download %s\n", path.data);
+            }
+        }
+    }
+}
+
+int dripbox_download_replica_file(const struct dripbox_server *dripbox_server, struct socket *sock,
+                                  struct z_string filename) {
+
+    typedef packed_tuple(struct dripbox_msg_header, struct dripbox_download_header) download_msg_t;
+    typedef packed_tuple(struct dripbox_msg_header, struct dripbox_bytes_header) bytes_msg_t;
+
+    socket_write_struct(sock, ((download_msg_t) {
+        { .version = 1, .type = DRIP_MSG_DOWNLOAD },
+        { .file_name_length = filename.length },
+    }), 0);
+    socket_write(sock, sv_deconstruct(filename), 0);
+
+    const var msg_header = socket_read_struct(sock, bytes_msg_t, 0);
+    if (!dripbox_expect_version(sock, msg_header.item1.version, 1)) return -1;
+    if (!dripbox_expect_msg(sock, msg_header.item1.type, DRIP_MSG_BYTES)) return -1;
+
+    const struct z_string dir_path = path_combine(dripbox_server->userdata_dir, sv_token(filename, "/")[0]);
+    if (mkdir(dripbox_server->userdata_dir.data, S_IRWXU | S_IRWXG | S_IRWXO) < 0 && errno != EEXIST) {
+        ediagf("mkdir: %s\n", dir_path.data);
+        return -1;
+    }
+
+    if (mkdir(dir_path.data, S_IRWXU | S_IRWXG | S_IRWXO) < 0 && errno != EEXIST) {
+        ediagf("mkdir: %s\n", dir_path.data);
+        return -1;
+    }
+
+    const struct z_string fullpath = path_combine(dripbox_server->userdata_dir, filename);
+    const ssize_t ret = socket_redirect_to_file(sock, fullpath.data, msg_header.item2.length);
+    if (ret < 0 || sock->error.code != 0) {
+        ediagf("%s\n", fullpath.data);
+        return -1;
+    }
+    return 0;
+}
+
+void dripbox_server_handle_replica_download(struct dripbox_server *dripbox_server, struct socket *sock) {
+    const var download_header = socket_read_struct(sock, struct dripbox_download_header, 0);
+    const struct string_view path = sv_new(
+        download_header.file_name_length,
+        socket_read_array(sock, char, download_header.file_name_length, 0)
+    );
+    const struct z_string fullpath = path_combine(dripbox_server->userdata_dir, path);
+
+    struct stat st = {};
+    if (stat(fullpath.data, &st) < 0) {
+        dripbox_send_error(sock, errno, SV(path));
+        return;
+    }
+
+    if (S_ISDIR(st.st_mode)) {
+        dripbox_send_error(sock, EISDIR, SV(path));
+        return;
+    }
+
+    typedef packed_tuple(struct dripbox_msg_header, struct dripbox_bytes_header) bytes_msg_t;
+    socket_write_struct(sock, ((bytes_msg_t) {
+        { .version = 1, .type = DRIP_MSG_BYTES },
+        { .length = st.st_size },
+    }), 0);
+    fd_redirect_from_file(sock->sock_fd, fullpath.data);
+}
+
 static void dripbox_server_shutdown(void) {
     dripbox_server_quit = true;
 }

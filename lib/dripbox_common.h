@@ -24,7 +24,9 @@ enum drip_message_type {\
     DRIP_MSG_ADD_REPLICA = 7,
     DRIP_MSG_COORDINATOR = 8,
     DRIP_MSG_ELECTION = 9,
-    DRIP_MSG_ERROR = 10,
+    DRIP_MSG_LIST_USER = 11,
+    DRIP_MSG_ERROR = 12,
+    DRIP_MSG_COUNT = 13,
 };
 
 enum election_state {
@@ -58,6 +60,11 @@ struct uuidv7 {
 struct string36 {
     char data[37];
 };
+
+struct string256 {
+    char data[256];
+};
+
 struct dripbox_file_stat {
     char name[256]; //file name
     time_t ctime;
@@ -101,6 +108,31 @@ struct dripbox_coordinator_header {
 struct dripbox_election_header {
     struct uuid server_uuid;
 } __attribute__((packed));
+struct dripbox_list_user_header {
+    uint64_t username_length;
+    uint32_t file_list_length;
+} __attribute__((packed));
+struct string256_checksum {
+    struct string256 name;
+    uint8_t checksum;
+} __attribute__((packed));
+
+struct file_name_checksum {
+    struct string_view name;
+    uint8_t checksum;
+};
+
+static bool file_name_checksum_name_equals(const void *a, const void *b) {
+    struct file_name_checksum *a_ = (struct file_name_checksum *) a;
+    struct file_name_checksum *b_ = (struct file_name_checksum *) b;
+    return sv_equals(a_->name, b_->name);
+}
+
+static bool file_name_checksum_equals(const void *a, const void *b) {
+    struct file_name_checksum *a_ = (struct file_name_checksum *) a;
+    struct file_name_checksum *b_ = (struct file_name_checksum *) b;
+    return sv_equals(a_->name, b_->name) && a_->checksum == b_->checksum;
+}
 
 int32_t ip = INADDR_ANY;
 uint16_t port = 25565;
@@ -120,6 +152,7 @@ static int dripbox_dirent_is_file(const struct dirent *name) {
 }
 
 static const char *msg_type_cstr(const enum drip_message_type msg_type) {
+    _Static_assert(DRIP_MSG_COUNT == 13, "Enumeration changed please update this function");
     switch (msg_type) {
     case DRIP_MSG_LIST: return "List";
     case DRIP_MSG_UPLOAD: return "Upload";
@@ -131,6 +164,7 @@ static const char *msg_type_cstr(const enum drip_message_type msg_type) {
     case DRIP_MSG_ADD_REPLICA: return "Add Replica";
     case DRIP_MSG_ERROR: return "Error";
     case DRIP_MSG_COORDINATOR: return "Coordinator";
+    case DRIP_MSG_LIST_USER: return "List User";
     default: return "Invalid Message";
     }
 }
