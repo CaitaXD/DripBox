@@ -40,6 +40,7 @@ struct dripbox_server_context {
 };
 // TODO: To this
 struct dripbox_server {
+    struct socket dns_socket;
     struct ifaddrs interface_address;
     struct tcp_listener listener;
     UsersHashTable ht_users;
@@ -264,7 +265,7 @@ static int server_main(const struct ifaddrs *addrs) {
     }
 
     struct tcp_listener listener = tcp_listener_new();
-    tcp_listener_bind(&listener, AF_INET, &ipv4_endpoint(ip, port));
+    tcp_listener_bind(&listener, AF_INET, &ipv4_endpoint(INADDR_ANY, port));
     tcp_listener_listen(&listener, SOMAXCONN);
     if (listener.error.code != 0) {
         diagf(LOG_INFO, "%s\n", strerror(listener.error.code));
@@ -281,6 +282,39 @@ static int server_main(const struct ifaddrs *addrs) {
     };
 
     void* scheduler_backlog = dynamic_array_new(struct coroutine*, &mallocator);
+
+    struct socket dns_socket = socket_new();
+    socket_open(&dns_socket, AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    socket_reuse_address(&dns_socket, true);
+    struct socket_address dns_remote = ipv4_endpoint(0, 0);
+    struct socket_address dns_addr = ipv4_endpoint(ntohl(dns_in_adrr), DRIPBOX_DNS_PORT);
+
+    typedef packed_tuple(struct dripbox_msg_header, struct dripbox_add_replica_header) add_replica_msg_t;
+    typedef packed_tuple(struct dripbox_msg_header, struct dripbox_in_adress_header) in_addr_msg_t;
+
+    retry:
+    diagf(LOG_INFO, "Sending add replica message to dns\n");
+    socket_write_struct_to(&dns_socket, ((add_replica_msg_t) {
+        { .version = 1, .type = DRIP_MSG_ADD_REPLICA },
+        { .server_uuid = server_uuid },
+    }), &dns_addr, 0);
+
+    diagf(LOG_INFO, "Waiting for dns response\n");
+    const var msg = socket_read_struct_from(&dns_socket, in_addr_msg_t, &dns_remote, 0);
+    if (!dripbox_expect_version(&dns_socket, msg.item1.version, 1)) {
+        diagf(LOG_INFO, "Received invalid version %d\n", msg.item1.version);
+        goto retry;
+    }
+
+    if (!dripbox_expect_msg(&dns_socket, msg.item1.type, DRIP_MSG_IN_ADRESS)) {
+        diagf(LOG_INFO, "Received invalid message type %d\n", msg.item1.type);
+        goto retry;
+    }
+
+    using_allocator_temp_arena {
+        const var a = &allocator_temp_arena()->allocator;
+        diagf(LOG_INFO, "Received main server address %s from dns\n", in_adrr_to_cstr(msg.item2.in_addr, a));
+    }
 
     dripbox_server = (struct dripbox_server) {
         .interface_address = server_addr,

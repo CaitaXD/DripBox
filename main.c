@@ -6,6 +6,7 @@
 #include "dripbox_common.h"
 #include "server.c"
 #include "client.c"
+#include "dns.c"
 #include <ifaddrs.h>
 
 enum {
@@ -43,16 +44,21 @@ int parse_commandline(const int argc, char *argv[argc]) {
                 mode_type = MODE_CLIENT;
                 dripbox_username.data = argv[i] + sizeof "client";
                 dripbox_username.length = strnlen(dripbox_username.data, 255);
-            } else if (strcmp(mode, "server") == 0) {
+            }
+            else if (strcmp(mode, "server") == 0) {
                 mode_type = MODE_SERVER;
-            } else {
-                mode_type = MODE_INVALID;
-                printf("Invalid mode: %s\n", mode);
-                return USAGE_COMMAND;
+            }
+            else if (strcmp(mode, "dns") == 0) {
+                mode_type = MODE_DNS;
+            }
+            else {
+               mode_type = MODE_INVALID;
+               printf("Invalid mode: %s\n", mode);
+               return USAGE_COMMAND;
             }
             break;
         case 1:
-            ip = inet_addr(argv[i]);
+            dns_in_adrr = inet_addr(argv[i]);
             break;
         case 2:
             port = atoi(argv[i]);
@@ -87,7 +93,7 @@ int main(const int argc, char *argv[argc]) {
         return 0;
     case SUCCESS:
         printf("Starting DripBox %s\n", mode);
-        printf("Ip=%s\n", inet_ntoa(*(struct in_addr *) &ip));
+        printf("Ip=%s\n", inet_ntoa(*(struct in_addr *) &dns_in_adrr));
         printf("Port: %d\n", port);
 
         struct ifaddrs *addrs;
@@ -97,8 +103,11 @@ int main(const int argc, char *argv[argc]) {
         if (mode_type == MODE_CLIENT) {
             ret = client_main();
         }
-        if (mode_type == MODE_SERVER) {
+        else if (mode_type == MODE_SERVER) {
             ret = server_main(addrs);
+        }
+        else if (mode_type == MODE_DNS) {
+            ret = dns_main(addrs);
         }
         freeifaddrs(addrs);
         return ret;

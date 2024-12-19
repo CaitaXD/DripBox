@@ -104,13 +104,45 @@ void dripbox_cleint_inotify_dispatch(struct socket *s, struct inotify_event_t in
 void *inotify_watcher_worker(const void *args);
 
 int client_main() {
+
+    struct socket dns_socket = socket_new();
+    socket_open(&dns_socket, AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    socket_reuse_address(&dns_socket, true);
+    struct socket_address dns_remote = ipv4_endpoint(0, 0);
+    const struct socket_address dns_addr = ipv4_endpoint(ntohl(dns_in_adrr), DRIPBOX_DNS_PORT);
+
+    retry:
+    diagf(LOG_INFO, "Sending dns request\n");
+    socket_write_struct_to(&dns_socket, ((struct dripbox_msg_header) {
+        .version = 1, .type = DRIP_MSG_DNS
+    }), &dns_addr, 0);
+
+    typedef packed_tuple(struct dripbox_msg_header, struct dripbox_in_adress_header) in_addr_msg_t;
+    diagf(LOG_INFO, "Waiting for dns response\n");
+    const var msg = socket_read_struct_from(&dns_socket, in_addr_msg_t, &dns_remote, 0);
+    if (!dripbox_expect_version(&dns_socket, msg.item1.version, 1)) {
+        diagf(LOG_INFO, "Received invalid version %d\n", msg.item1.version);
+        goto retry;
+    }
+
+    if (!dripbox_expect_msg(&dns_socket, msg.item1.type, DRIP_MSG_IN_ADRESS)) {
+        diagf(LOG_INFO, "Received invalid message type %d\n", msg.item1.type);
+        goto retry;
+    }
+
+    const int32_t in_addr = msg.item2.in_addr;
+    using_allocator_temp_arena {
+        const var a = &allocator_temp_arena()->allocator;
+        diagf(LOG_INFO, "Received main server address %s from dns\n", in_adrr_to_cstr(in_addr, a));
+    }
+
     pthread_t inotify_watcher_worker_id, network_worker_id;
     struct stat dir_stat = {};
     if (stat(g_sync_dir_path.data, &dir_stat) < 0) {
         mkdir(g_sync_dir_path.data, S_IRWXU | S_IRWXG | S_IRWXO);
     }
 
-    var server_endpoint = ipv4_endpoint(ntohl(ip), port);
+    var server_endpoint = ipv4_endpoint(ntohl(in_addr), port);
     var s = socket_new();
     socket_open(&s, AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (!tcp_client_connect(&s, &server_endpoint)) {

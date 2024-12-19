@@ -676,6 +676,12 @@ static void socket_adress_set_port(const struct socket_address *addr, const uint
     }
 }
 
+static char *in_adrr_to_cstr(const uint32_t in_addr, struct allocator *a) {
+    char *buffer = allocator_alloc(a, INET_ADDRSTRLEN);
+    inet_ntop(AF_INET, &in_addr, buffer, INET_ADDRSTRLEN);
+    return buffer;
+}
+
 static void socket_adress_set_in_addr(const struct socket_address *addr, const uint32_t ip) {
     assert(addr->sa->sa_family == AF_INET);
     ((struct sockaddr_in *) addr->sa)->sin_addr.s_addr = htonl(ip);

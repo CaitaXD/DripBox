@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <linux/version.h>
 
+#define DRIPBOX_DNS_PORT 53
 #define DRIPBOX_REPLICA_PORT 6969
 #define DRIPBOX_REPLICA_ENDPOINT ipv4_any(DRIPBOX_REPLICA_PORT)
 #define DRIPBOX_REPLICA_MULTICAST_GROUP ipv4_address(239, 192, 1, 1)
@@ -26,7 +27,9 @@ enum drip_message_type {\
     DRIP_MSG_ELECTION = 9,
     DRIP_MSG_LIST_USER = 11,
     DRIP_MSG_ERROR = 12,
-    DRIP_MSG_COUNT = 13,
+    DRIP_MSG_DNS = 13,
+    DRIP_MSG_IN_ADRESS = 14,
+    DRIP_MSG_COUNT,
 };
 
 enum election_state {
@@ -116,6 +119,9 @@ struct string256_checksum {
     struct string256 name;
     uint8_t checksum;
 } __attribute__((packed));
+struct dripbox_in_adress_header {
+    uint32_t in_addr;
+} __attribute__((packed));
 
 struct file_name_checksum {
     struct string_view name;
@@ -134,11 +140,11 @@ static bool file_name_checksum_equals(const void *a, const void *b) {
     return sv_equals(a_->name, b_->name) && a_->checksum == b_->checksum;
 }
 
-int32_t ip = INADDR_ANY;
+uint32_t dns_in_adrr = INADDR_ANY;
 uint16_t port = 25565;
 char *mode = NULL;
 
-enum { MODE_INVALID, MODE_CLIENT, MODE_SERVER } mode_type = MODE_INVALID;
+enum { MODE_INVALID, MODE_CLIENT, MODE_SERVER, MODE_DNS } mode_type = MODE_INVALID;
 
 static uint8_t dripbox_checksum(const uint8_t *ptr, size_t sz);
 
@@ -152,7 +158,7 @@ static int dripbox_dirent_is_file(const struct dirent *name) {
 }
 
 static const char *msg_type_cstr(const enum drip_message_type msg_type) {
-    _Static_assert(DRIP_MSG_COUNT == 13, "Enumeration changed please update this function");
+    _Static_assert(DRIP_MSG_COUNT == 15, "Enumeration changed please update this function");
     switch (msg_type) {
     case DRIP_MSG_LIST: return "List";
     case DRIP_MSG_UPLOAD: return "Upload";
@@ -165,6 +171,8 @@ static const char *msg_type_cstr(const enum drip_message_type msg_type) {
     case DRIP_MSG_ERROR: return "Error";
     case DRIP_MSG_COORDINATOR: return "Coordinator";
     case DRIP_MSG_LIST_USER: return "List User";
+    case DRIP_MSG_DNS: return "DNS";
+    case DRIP_MSG_IN_ADRESS: return "Internet Adress";
     default: return "Invalid Message";
     }
 }
@@ -498,9 +506,9 @@ static int32_t uuidv7_hash(const void *element) {
 
 static struct string36 uuidv7_to_string(const struct uuid uuid) {
     struct string36 uuid_str;
-    const uint32_t data1 = *(uint64_t*)&uuid.bytes[0];
-    const uint16_t data2 = *(uint64_t*)&uuid.bytes[4];
-    const uint16_t data3 = *(uint64_t*)&uuid.bytes[6];
+    const uint32_t data1 = *(uint32_t*)&uuid.bytes[0];
+    const uint16_t data2 = *(uint16_t*)&uuid.bytes[4];
+    const uint16_t data3 = *(uint16_t*)&uuid.bytes[6];
     sprintf(uuid_str.data,
     "%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
         data1, data2, data3,
