@@ -286,6 +286,7 @@ char *socket_address_to_cstr(const struct socket_address *addr, struct allocator
         const int MAX_STRING_LENGTH = INET_ADDRSTRLEN + U16_MAX_DIGITS + 1;
         const uint16_t port = ntohs(((struct sockaddr_in *) addr->sa)->sin_port);
         char *buffer = allocator_alloc(a, MAX_STRING_LENGTH);
+        memset(buffer, 0, MAX_STRING_LENGTH);
         inet_ntop(AF_INET, &((struct sockaddr_in *) addr->sa)->sin_addr, buffer, INET_ADDRSTRLEN);
         sprintf(buffer + strlen(buffer), ":%d", port);
         return buffer;
@@ -294,6 +295,7 @@ char *socket_address_to_cstr(const struct socket_address *addr, struct allocator
         const int MAX_STRING_LENGTH = INET6_ADDRSTRLEN + U16_MAX_DIGITS + 1;
         const uint16_t port = ntohs(((struct sockaddr_in6 *) addr->sa)->sin6_port);
         char *buffer = allocator_alloc(a, MAX_STRING_LENGTH);
+        memset(buffer, 0, MAX_STRING_LENGTH);
         inet_ntop(AF_INET6, &((struct sockaddr_in6 *) addr->sa)->sin6_addr, buffer, INET6_ADDRSTRLEN);
         sprintf(buffer + strlen(buffer), ":%d", port);
         return buffer;
@@ -677,8 +679,9 @@ static void socket_adress_set_port(const struct socket_address *addr, const uint
 }
 
 static char *in_adrr_to_cstr(const uint32_t in_addr, struct allocator *a) {
-    char *buffer = allocator_alloc(a, INET_ADDRSTRLEN);
-    inet_ntop(AF_INET, &in_addr, buffer, INET_ADDRSTRLEN);
+    char *buffer = allocator_alloc(a, INET_ADDRSTRLEN + 1);
+    inet_ntop(AF_INET, &in_addr, buffer, INET_ADDRSTRLEN + 1);
+    buffer[INET_ADDRSTRLEN] = 0;
     return buffer;
 }
 
@@ -690,6 +693,11 @@ static void socket_adress_set_in_addr(const struct socket_address *addr, const u
 static in_addr_t socket_address_get_in_addr(const struct socket_address *addr) {
     assert(addr->sa->sa_family == AF_INET);
     return ((struct sockaddr_in *) addr->sa)->sin_addr.s_addr;
+}
+
+static in_port_t socket_address_get_port(const struct socket_address *addr) {
+    assert(addr->sa->sa_family == AF_INET);
+    return ((struct sockaddr_in *) addr->sa)->sin_port;
 }
 
 static void *_socket_read_struct_impl(struct socket *socket, const size_t length, uint8_t buffer[length],

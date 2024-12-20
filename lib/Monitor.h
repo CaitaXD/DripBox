@@ -37,6 +37,7 @@ MONITOR_API void rw_monitor_enter_read(struct rw_monitor *rwmonitor);
 MONITOR_API void rw_monitor_enter_write(struct rw_monitor *rwmonitor);
 MONITOR_API void rw_monitor_exit(struct rw_monitor *rwmonitor);
 
+// Double-checked locking https://en.wikipedia.org/wiki/Double-checked_locking
 #define using_conditional_monitor(monitor__, condition__) \
     if ((condition__)) using_monitor((monitor__)) if ((condition__))
 

@@ -801,6 +801,8 @@ void *dripbox_server_incoming_connections_worker(const void *arg) {
 void *dripbox_server_network_worker(const void *arg) {
     const struct dripbox_server_context *context = arg;
     struct tcp_listener *listener = context->listener;
+    time_t pingtime;
+    time_t dripbox_ping_interval = 1;
 
     socket_blocking(&listener->as_socket, false);
     // ReSharper disable once CppDFALoopConditionNotUpdated
@@ -828,6 +830,23 @@ void *dripbox_server_network_worker(const void *arg) {
 
                 const var kvp = (ReplicaKVP*) entry->value;
                 struct replica *replica = &kvp->value;
+                if ((dripbox_server.election_state == ELECTION_STATE_NONE) &&
+                    (dripbox_server.server_role == REPLICA_ROLE) &&
+                    (replica->uuid.integer == dripbox_server.coordinator_uuid.integer)) {
+                    time_t elapsed = time(NULL) - pingtime;
+                    if (elapsed > dripbox_ping_interval) {
+                        diag(LOG_INFO, "Ping");
+                        time(&pingtime);
+                        socket_write_struct(&replica->socket, ((struct dripbox_msg_header) {
+                            .version = 1,
+                            .type = DRIP_MSG_NOOP,
+                        }), 0);
+                    }
+                    if (replica->socket.error.code != 0 && replica->socket.error.code != EAGAIN) {
+                        dripbox_server_start_election(&dripbox_server);
+                        continue;
+                    }
+                }
                 if (replica->socket.sock_fd < 0) continue;
 
                 if (!socket_pending_read(&replica->socket, 0)) continue;

@@ -228,4 +228,6 @@ static bool string_comparer_equals(const void *a, const void *b) {
 #define packed_tuple(...) struct { EVAL(TUPLE_LAZY(ARGS_REVERSE(__VA_ARGS__))) } __attribute__((packed))
 
 #define tuple_size(...) sizeof(struct { EVAL(TUPLE_LAZY(__VA_ARGS__)) })
+
+#define strong_typedef(type__, name__) typedef struct { type__ value; } name__;
 #endif //COMMON_H
