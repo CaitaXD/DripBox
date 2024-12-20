@@ -41,6 +41,7 @@ struct dripbox_server_context {
 // TODO: To this
 struct dripbox_server {
     struct socket dns_socket;
+    in_addr_t dns_in_addr;
     struct ifaddrs interface_address;
     struct tcp_listener listener;
     UsersHashTable ht_users;
@@ -88,7 +89,7 @@ static void dripbox_server_handle_client_massage(struct dripbox_server *dripbox_
 
 static void *dripbox_server_incoming_connections_worker(const void *arg);
 
-static void *dripbox_server_network_worker(const void *arg);
+static void *dripbox_server_network_worker(void *arg);
 
 static void dripbox_server_handle_add_replica(struct dripbox_server *dripbox_server, struct socket *sock);
 
@@ -272,7 +273,7 @@ static int server_main(const struct ifaddrs *addrs) {
         return 1;
     }
 
-    pthread_t incoming_connections_worker_id, nextwork_worker_id;
+    pthread_t incoming_connections_worker_id = 0, nextwork_worker_id = 0;
     var users_hash_table = hash_table_new(char*, struct user,
                                           string_hash, string_comparer_equals,
                                           &mallocator);
@@ -317,6 +318,8 @@ static int server_main(const struct ifaddrs *addrs) {
     }
 
     dripbox_server = (struct dripbox_server) {
+        .dns_socket = dns_socket,
+        .dns_in_addr = msg.item2.in_addr,
         .interface_address = server_addr,
         .listener = listener,
         .ht_users = (void*)hash_table_new(char*, struct user, string_hash, string_comparer_equals, &mallocator),
@@ -345,7 +348,7 @@ static int server_main(const struct ifaddrs *addrs) {
     fifo_push(dripbox_server.co_scheduler, co_connect_replicas);
 
     pthread_create(&incoming_connections_worker_id, NULL, (void *) dripbox_server_incoming_connections_worker, &ctx);
-    pthread_create(&nextwork_worker_id, NULL, (void *) dripbox_server_network_worker, &ctx);
+    pthread_create(&nextwork_worker_id, NULL, (void *) dripbox_server_network_worker, &dripbox_server);
 
     struct coroutine shcedureler = co_stack(128);
     while (!dripbox_server_quit) {
@@ -798,19 +801,19 @@ void *dripbox_server_incoming_connections_worker(const void *arg) {
     return NULL;
 }
 
-void *dripbox_server_network_worker(const void *arg) {
-    const struct dripbox_server_context *context = arg;
-    struct tcp_listener *listener = context->listener;
-    time_t pingtime;
-    time_t dripbox_ping_interval = 1;
+void *dripbox_server_network_worker(void *arg) {
+    struct dripbox_server *dripbox_server = arg;
+    struct tcp_listener *listener = &dripbox_server->listener;
+    time_t pingtime = 0;
+    const time_t dripbox_ping_interval = 1;
 
     socket_blocking(&listener->as_socket, false);
     // ReSharper disable once CppDFALoopConditionNotUpdated
     while (!dripbox_server_quit) {
-        using_monitor(&dripbox_server.m_users) {
-            for (int i = 0; i < hash_table_capacity(dripbox_server.ht_users); i++) {
+        using_monitor(&dripbox_server->m_users) {
+            for (int i = 0; i < hash_table_capacity(dripbox_server->ht_users); i++) {
                 struct hash_entry_t *entry;
-                if (!hash_set_try_entry(dripbox_server.ht_users, i, &entry)) continue;
+                if (!hash_set_try_entry(dripbox_server->ht_users, i, &entry)) continue;
 
                 const var kvp = (UserKVP*) entry->value;
                 struct user *user = &kvp->value;
@@ -820,20 +823,20 @@ void *dripbox_server_network_worker(const void *arg) {
                 if (client.sock_fd == -1) continue;
 
                 if (!socket_pending_read(&client, 0)) continue;
-                dripbox_server_handle_client_massage(&dripbox_server, user);
+                dripbox_server_handle_client_massage(dripbox_server, user);
             }
         }
-        using_monitor(&dripbox_server.m_replicas) {
-            for (int i = 0; i < hash_set_capacity(dripbox_server.ht_replicas); i++) {
+        using_monitor(&dripbox_server->m_replicas) {
+            for (int i = 0; i < hash_set_capacity(dripbox_server->ht_replicas); i++) {
                 struct hash_entry_t *entry;
-                if (!hash_set_try_entry(dripbox_server.ht_replicas, i, &entry)) continue;
+                if (!hash_set_try_entry(dripbox_server->ht_replicas, i, &entry)) continue;
 
                 const var kvp = (ReplicaKVP*) entry->value;
                 struct replica *replica = &kvp->value;
-                if ((dripbox_server.election_state == ELECTION_STATE_NONE) &&
-                    (dripbox_server.server_role == REPLICA_ROLE) &&
-                    (replica->uuid.integer == dripbox_server.coordinator_uuid.integer)) {
-                    time_t elapsed = time(NULL) - pingtime;
+                if ((dripbox_server->election_state == ELECTION_STATE_NONE) &&
+                    (dripbox_server->server_role == REPLICA_ROLE) &&
+                    (replica->uuid.integer == dripbox_server->coordinator_uuid.integer)) {
+                    const time_t elapsed = time(NULL) - pingtime;
                     if (elapsed > dripbox_ping_interval) {
                         diag(LOG_INFO, "Ping");
                         time(&pingtime);
@@ -843,14 +846,14 @@ void *dripbox_server_network_worker(const void *arg) {
                         }), 0);
                     }
                     if (replica->socket.error.code != 0 && replica->socket.error.code != EAGAIN) {
-                        dripbox_server_start_election(&dripbox_server);
+                        dripbox_server_start_election(dripbox_server);
                         continue;
                     }
                 }
                 if (replica->socket.sock_fd < 0) continue;
 
                 if (!socket_pending_read(&replica->socket, 0)) continue;
-                dripbox_server_handle_replica_massage(&dripbox_server, replica);
+                dripbox_server_handle_replica_massage(dripbox_server, replica);
             }
         }
     }
@@ -922,10 +925,23 @@ void dripbox_server_handle_add_replica(struct dripbox_server *dripbox_server, st
             remote_ip
         );
     }
-    if(election_higher_id(replica.uuid, dripbox_server->coordinator_uuid)) {
+
+    if(election_higher_id(replica.uuid, dripbox_server->coordinator_uuid) && election_higher_id(replica.uuid, dripbox_server->uuid)) {
         diagf(LOG_INFO, "New coordinator: %s\n", uuidv7_to_string(replica.uuid.as_uuid).data);
         dripbox_server->coordinator_uuid = replica.uuid;
     }
+
+    if (dripbox_server->coordinator_uuid.integer == dripbox_server->uuid.integer) {
+        dripbox_server->server_role = MASTER_ROLE;
+    }
+    else {
+        dripbox_server->server_role = REPLICA_ROLE;
+    }
+
+    // This useless piece of code holds the fabric of the universe together
+    // YOU KNOW WHAT? FUCK UNDEFINED BEHAVIOUR FUCK SUPER SAYANS AND FUCK YOU!!!
+    int devnull = open("/dev/null", O_WRONLY);
+    dprintf(devnull, "%d\n", dripbox_server->server_role);
 }
 
 static void dripbox_handle_replica_upload(struct dripbox_server *dripbox_server, struct socket *sock) {
@@ -1012,6 +1028,15 @@ static void* dripbox_server_election_coroutine(struct coroutine *co,
                 diag(LOG_INFO, "Timeout is reached, you won the election");
                 dripbox_server->server_role = MASTER_ROLE;
                 dripbox_server->coordinator_uuid = dripbox_server->uuid;
+                packed_tuple(struct dripbox_msg_header, struct dripbox_coordinator_header) coordinator_header = {
+                    { .version = 1, .type = DRIP_MSG_COORDINATOR },
+                    {
+                        .coordinator_uuid = dripbox_server->uuid,
+                        .coordinator_inaddr = ((struct sockaddr_in*)dripbox_server->interface_address.ifa_addr)->sin_addr.s_addr
+                    },
+                };
+                // Notify dns
+                socket_write_struct(&dripbox_server->dns_socket, coordinator_header, 0);
                 // Notify all replicas
                 while (!monitor_try_enter(&dripbox_server->m_replicas)) {
                     co_yield(co);
@@ -1025,13 +1050,6 @@ static void* dripbox_server_election_coroutine(struct coroutine *co,
                     const var kvp = (ReplicaKVP*) entry->value;
                     struct replica *replica = &kvp->value;
                     if (replica->socket.sock_fd == - 1) continue;
-                    packed_tuple(struct dripbox_msg_header, struct dripbox_coordinator_header) coordinator_header = {
-                        { .version = 1, .type = DRIP_MSG_COORDINATOR },
-                        {
-                            .coordinator_uuid = dripbox_server->uuid,
-                            .coordinator_inaddr = socket_address_get_in_addr(replica->socket.addr)
-                        },
-                    };
                     socket_write_struct(&replica->socket, coordinator_header, 0);
                 }
                 monitor_exit(&dripbox_server->m_replicas);
@@ -1048,13 +1066,6 @@ static void* dripbox_server_election_coroutine(struct coroutine *co,
                     const var kvp = (UserKVP*) entry->value;
                     struct user *user = &kvp->value;
                     if (user->socket.sock_fd == - 1) continue;
-                    packed_tuple(struct dripbox_msg_header, struct dripbox_coordinator_header) coordinator_header = {
-                        { .version = 1, .type = DRIP_MSG_COORDINATOR },
-                        {
-                            .coordinator_uuid = dripbox_server->uuid,
-                            .coordinator_inaddr = ((struct sockaddr_in*)dripbox_server->interface_address.ifa_addr)->sin_addr.s_addr
-                        },
-                    };
                     socket_write_struct(&user->socket, coordinator_header, 0);
                 }
                 monitor_exit(&dripbox_server->m_users);
