@@ -942,6 +942,7 @@ void dripbox_server_handle_add_replica(struct dripbox_server *dripbox_server, st
     // YOU KNOW WHAT? FUCK UNDEFINED BEHAVIOUR FUCK SUPER SAYANS AND FUCK YOU!!!
     int devnull = open("/dev/null", O_WRONLY);
     dprintf(devnull, "%d\n", dripbox_server->server_role);
+    close(devnull);
 }
 
 static void dripbox_handle_replica_upload(struct dripbox_server *dripbox_server, struct socket *sock) {
