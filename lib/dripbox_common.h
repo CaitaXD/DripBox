@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <linux/version.h>
 
-#define DRIPBOX_DNS_PORT 53
+#define DRIPBOX_DNS_PORT 46921
 #define DRIPBOX_REPLICA_PORT 6969
 #define DRIPBOX_REPLICA_ENDPOINT ipv4_any(DRIPBOX_REPLICA_PORT)
 #define DRIPBOX_REPLICA_MULTICAST_GROUP ipv4_address(239, 192, 1, 1)
@@ -29,6 +29,7 @@ enum drip_message_type {\
     DRIP_MSG_ERROR = 12,
     DRIP_MSG_DNS = 13,
     DRIP_MSG_IN_ADRESS = 14,
+    DRIP_MSG_SEND_CLIENT = 15,
     DRIP_MSG_COUNT,
 };
 
@@ -122,6 +123,10 @@ struct string256_checksum {
 struct dripbox_in_adress_header {
     uint32_t in_addr;
 } __attribute__((packed));
+struct dripbox_send_client_header {
+    uint64_t client_username_len;
+    uint32_t in_addr;
+} __attribute__((packed));
 
 struct file_name_checksum {
     struct string_view name;
@@ -173,6 +178,7 @@ static const char *msg_type_cstr(const enum drip_message_type msg_type) {
     case DRIP_MSG_LIST_USER: return "List User";
     case DRIP_MSG_DNS: return "DNS";
     case DRIP_MSG_IN_ADRESS: return "Internet Adress";
+    case DRIP_MSG_SEND_CLIENT: return "Send Client";
     default: return "Invalid Message";
     }
 }
