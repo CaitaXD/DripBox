@@ -173,6 +173,9 @@ int client_main() {
     while (!dripbox_client_quit) {
         //dripbox_ensure_sock();
 
+        struct socket *s = &dripbox_client.leader_socket;
+        if (s->error.code != 0 || s->sock_fd == -1) goto retry;
+
         if (!fd_pending_read(STDIN_FILENO)) continue;
 
         const struct string_view buffer = sv_stack(1024);

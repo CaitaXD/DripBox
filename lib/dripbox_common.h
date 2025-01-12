@@ -163,7 +163,7 @@ static int dripbox_dirent_is_file(const struct dirent *name) {
 }
 
 static const char *msg_type_cstr(const enum drip_message_type msg_type) {
-    _Static_assert(DRIP_MSG_COUNT == 15, "Enumeration changed please update this function");
+    _Static_assert(DRIP_MSG_COUNT == 16, "Enumeration changed please update this function");
     switch (msg_type) {
     case DRIP_MSG_LIST: return "List";
     case DRIP_MSG_UPLOAD: return "Upload";

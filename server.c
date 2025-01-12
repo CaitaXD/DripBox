@@ -388,12 +388,11 @@ static void dripbox_server_handle_client_login(struct dripbox_server *dripbox_se
         mkdir(dirpath.data, S_IRWXU | S_IRWXG | S_IRWXO);
     }
     
-    for (int j = 0; j < hash_set_capacity(dripbox_server->ht_replicas); ++j)
-    {
+    for (int j = 0; j < hash_set_capacity(dripbox_server->ht_replicas); ++j) {
     	struct hash_entry_t *rentry;
-	if (!hash_set_try_entry(dripbox_server->ht_replicas, i, &rentry)) continue; 
+	    if (!hash_set_try_entry(dripbox_server->ht_replicas, i, &rentry)) continue; 
 	
-	var replica = (ReplicaKVP*)rentry->value;
+	    var replica = (ReplicaKVP*)rentry->value;
 	
         for (int i = 0; i < hash_set_capacity(dripbox_server->ht_replicas); ++i)
         {
@@ -408,7 +407,7 @@ static void dripbox_server_handle_client_login(struct dripbox_server *dripbox_se
                 { 1, DRIP_MSG_SEND_CLIENT },
                 { .client_username_len = user->value.username.lenght, .in_addr = socket_address_get_in_addr(user->value.socket.addr) }	
             }), 0);
-            socket_write(&replica->value.socket, sv_deconstruct(user->value.username, 0);
+            socket_write(&replica->value.socket, sv_deconstruct(user->value.username), 0);
        }
     }
 }
@@ -853,7 +852,13 @@ void *dripbox_server_network_worker(void *arg) {
                 if (user->username.length <= 0) continue;
 
                 struct socket client = user->socket;
-                if (client.sock_fd == -1) continue;
+                if (client.sock_fd == -1) {
+                    struct allocator *a = hash_set_allocator(dripbox_server->ht_users);
+                    const char *adress_cstr = ipv4_cstr(client.addr, a);
+                    hash_table_remove(dripbox_server->ht_users, adress_cstr);
+                    diagf(LOG_INFO, "Disconnected Client Address %s\n", adress_cstr);
+                    continue;
+                }
 
                 if (!socket_pending_read(&client, 0)) continue;
                 dripbox_server_handle_client_massage(dripbox_server, user);
