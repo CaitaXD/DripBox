@@ -29,7 +29,7 @@ enum drip_message_type {\
     DRIP_MSG_ERROR = 12,
     DRIP_MSG_DNS = 13,
     DRIP_MSG_IN_ADRESS = 14,
-    DRIP_MSG_SEND_CLIENT = 15,
+    // DRIP_MSG_SEND_CLIENT = 15,
     DRIP_MSG_COUNT,
 };
 
@@ -163,7 +163,7 @@ static int dripbox_dirent_is_file(const struct dirent *name) {
 }
 
 static const char *msg_type_cstr(const enum drip_message_type msg_type) {
-    _Static_assert(DRIP_MSG_COUNT == 16, "Enumeration changed please update this function");
+    _Static_assert(DRIP_MSG_COUNT == 15, "Enumeration changed please update this function");
     switch (msg_type) {
     case DRIP_MSG_LIST: return "List";
     case DRIP_MSG_UPLOAD: return "Upload";
@@ -178,7 +178,7 @@ static const char *msg_type_cstr(const enum drip_message_type msg_type) {
     case DRIP_MSG_LIST_USER: return "List User";
     case DRIP_MSG_DNS: return "DNS";
     case DRIP_MSG_IN_ADRESS: return "Internet Adress";
-    case DRIP_MSG_SEND_CLIENT: return "Send Client";
+    // case DRIP_MSG_SEND_CLIENT: return "Send Client";
     default: return "Invalid Message";
     }
 }

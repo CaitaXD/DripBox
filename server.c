@@ -388,28 +388,28 @@ static void dripbox_server_handle_client_login(struct dripbox_server *dripbox_se
         mkdir(dirpath.data, S_IRWXU | S_IRWXG | S_IRWXO);
     }
     
-    for (int j = 0; j < hash_set_capacity(dripbox_server->ht_replicas); ++j) {
-    	struct hash_entry_t *rentry;
-	    if (!hash_set_try_entry(dripbox_server->ht_replicas, i, &rentry)) continue; 
+    // for (int j = 0; j < hash_set_capacity(dripbox_server->ht_replicas); ++j) {
+    // 	struct hash_entry_t *rentry;
+	//     if (!hash_set_try_entry(dripbox_server->ht_replicas, i, &rentry)) continue; 
 	
-	    var replica = (ReplicaKVP*)rentry->value;
+	//     var replica = (ReplicaKVP*)rentry->value;
 	
-        for (int i = 0; i < hash_set_capacity(dripbox_server->ht_replicas); ++i)
-        {
-    	    struct hash_entry_t *uentry;
-            if (!hash_set_try_entry(dripbox_server->ht_users, i, &uentry)) continue;
+    //     for (int i = 0; i < hash_set_capacity(dripbox_server->ht_replicas); ++i)
+    //     {
+    // 	    struct hash_entry_t *uentry;
+    //         if (!hash_set_try_entry(dripbox_server->ht_users, i, &uentry)) continue;
             
-            var user = (UserKVP*)uentry->value;
+    //         var user = (UserKVP*)uentry->value;
             
-            typedef packed_tuple(struct dripbox_msg_header, struct dripbox_send_client_header) send_cli_msg;
+    //         typedef packed_tuple(struct dripbox_msg_header, struct dripbox_send_client_header) send_cli_msg;
             
-            socket_write_struct(&replica->value.socket, ((send_cli_msg) {
-                { 1, DRIP_MSG_SEND_CLIENT },
-                { .client_username_len = user->value.username.lenght, .in_addr = socket_address_get_in_addr(user->value.socket.addr) }	
-            }), 0);
-            socket_write(&replica->value.socket, sv_deconstruct(user->value.username), 0);
-       }
-    }
+    //         socket_write_struct(&replica->value.socket, ((send_cli_msg) {
+    //             { 1, DRIP_MSG_SEND_CLIENT },
+    //             { .client_username_len = user->value.username.lenght, .in_addr = socket_address_get_in_addr(user->value.socket.addr) }	
+    //         }), 0);
+    //         socket_write(&replica->value.socket, sv_deconstruct(user->value.username), 0);
+    //    }
+    // }
 }
 
 ssize_t dripbox_upload_client_file(struct socket *sock,
@@ -745,15 +745,27 @@ static void dripbox_server_handle_replica_massage(struct dripbox_server *dripbox
     case DRIP_MSG_ADD_REPLICA: {
         ediag("Redundant add replica attempt by server process");
     } break;
-    case DRIP_MSG_SEND_CLIENT: {
-        var msg = socket_read_struct(struct dripbox_send_client_header, 0);
-        var in_addr = msg.in_addr;
-        var username_len = msg.client_username_len;
-        var username = sv_new(
-          username_len
-          socket_read_array(client, char, username_len, 0)
-        );
-    }
+    // case DRIP_MSG_SEND_CLIENT: {
+    //     var msg = socket_read_struct(struct dripbox_send_client_header, 0);
+    //     var in_addr = msg.in_addr;
+    //     var username_len = msg.client_username_len;
+    //     var username = sv_new(
+    //       username_len
+    //       socket_read_array(client, char, username_len, 0)
+    //     );
+
+    //     struct allocator *a = hash_set_allocator(dripbox_server->ht_users);
+    //     const struct user _user = {
+    //         .username = (struct string_view){
+    //             .data = cstr_sv(username, a),
+    //             .length = username.length,
+    //         },
+    //         .socket = *client,
+    //     };
+
+    // const char *adress_cstr = ipv4_cstr(client->addr, a);
+    // hash_table_update(&dripbox_server->ht_users, adress_cstr, _user);
+    // }
     case DRIP_MSG_COORDINATOR: {
         const var coordinator_header = socket_read_struct(sock, struct dripbox_coordinator_header, 0);
         const struct uuidv7 coordiantor_uuid = coordinator_header.coordinator_uuid;
