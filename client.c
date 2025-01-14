@@ -104,7 +104,7 @@ void dripbox_cleint_inotify_dispatch(struct socket *s, struct inotify_event_t in
 void *inotify_watcher_worker(const void *args);
 
 int client_main() {
-
+    int connected_once = 0;
     struct socket dns_socket = socket_new();
     socket_open(&dns_socket, AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     socket_reuse_address(&dns_socket, true);
@@ -145,7 +145,14 @@ int client_main() {
     var server_endpoint = ipv4_endpoint(ntohl(in_addr), port);
     var s = socket_new();
     socket_open(&s, AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (!tcp_client_connect(&s, &server_endpoint)) {
+
+    var result_connection = tcp_client_connect(&s, &server_endpoint);
+
+    if (!result_connection && connected_once) {
+        goto retry;
+    }
+
+    if (!result_connection) {
         diagf(LOG_ERROR, "%s\n", strerror(s.error.code));
         return -1;
     }
@@ -170,6 +177,7 @@ int client_main() {
     pthread_create(&network_worker_id, NULL, (void *) dripbox_client_network_worker, &dripbox_client.leader_socket);
 
     // ReSharper disable once CppDFALoopConditionNotUpdated
+    connected_once = 1;
     while (!dripbox_client_quit) {
         //dripbox_ensure_sock();
 
